@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 
 from make_synthetic import generate
-from phm_data import FEATURE_COLS, SENSOR_COLS, TTF_COLS, make_features, make_labels
+from phm_data import (FEATURE_COLS, SENSOR_COLS, TTF_COLS, make_features, make_labels,
+                      phm_subscores)
 from predict import predict
 from train import train
 
@@ -19,9 +20,9 @@ def test_make_features_uses_window_statistics():
     assert list(feats["n_samples"]) == [2, 2, 2, 2]
     assert list(feats["FLOWCOOLPRESSURE_mean"]) == [0.5, 2.5, 4.5, 6.5]
     assert list(feats["FLOWCOOLPRESSURE_last"]) == [1, 3, 5, 7]
-    # 첫 윈도우는 비교할 과거가 없고, 두 번째 윈도우는 (2.5 - 0.5) / 0.5
+    # 첫 윈도우는 비교할 과거가 없고, 두 번째 윈도우는 2.5 - 0.5
     assert np.isnan(feats["FLOWCOOLPRESSURE_trend"].iloc[0])
-    assert np.isclose(feats["FLOWCOOLPRESSURE_trend"].iloc[1], 4.0)
+    assert np.isclose(feats["FLOWCOOLPRESSURE_trend"].iloc[1], 2.0)
     assert list(feats.columns) == ["time", *FEATURE_COLS]
 
 
@@ -35,6 +36,13 @@ def test_make_labels_takes_ttf_at_window_end():
     assert list(labels[TTF_COLS[0]]) == [15.0, 10.0]
 
 
+def test_phm_subscores_follow_official_rules():
+    gt = [0, 1000, np.nan, 500, np.nan]
+    pred = [100, 1000, 1000, np.nan, np.nan]
+    expected = [100, 0, np.exp(-1) * 1000, np.exp(-0.5) * 500, 0]
+    assert np.allclose(phm_subscores(gt, pred), expected)
+
+
 def test_end_to_end_on_synthetic_data(tmp_path):
     train_dir, test_dir = generate(tmp_path / "data", n_tools=3, days=12, test_days=3, seed=1)
     model_path = tmp_path / "model.joblib"
@@ -42,9 +50,10 @@ def test_end_to_end_on_synthetic_data(tmp_path):
     metrics = train(train_dir, model_path, n_splits=3, max_ttf_hours=72)
     results = predict(test_dir, model_path, tmp_path / "pred")
 
-    assert set(metrics) == set(TTF_COLS)
-    for m in metrics.values():
-        assert np.isfinite(m["mae_h"]) and m["mae_h"] >= 0
+    assert set(metrics) == {*TTF_COLS, "phm_score"}
+    for c in TTF_COLS:
+        assert np.isfinite(metrics[c]["mae_h"]) and metrics[c]["mae_h"] >= 0
+    assert np.isfinite(metrics["phm_score"]) and metrics["phm_score"] >= 0
     assert len(results) == 3
     for out in results.values():
         assert list(out.columns) == ["tool", "time", *TTF_COLS]

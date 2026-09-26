@@ -87,12 +87,12 @@ def make_features(sensor, window_sec=DEFAULT_WINDOW_SEC):
     feats = grouped[SENSOR_COLS].agg(STATS)
     feats.columns = [f"{c}_{s}" for c, s in feats.columns]
 
-    # 직전 윈도우들의 평균 대비 상대 변화율: 서서히 진행되는 열화(drift)를 포착한다.
-    # 상대값이라 장비마다 센서 기준값이 달라도 비교할 수 있다.
+    # 직전 윈도우들의 평균 대비 변화량: 서서히 진행되는 열화(drift)를 포착한다.
+    # 실제 대회 데이터는 이미 표준화되어 있어(0 근처 값) 비율 대신 차이를 쓴다.
     for c in SENSOR_COLS:
         mean = feats[f"{c}_mean"]
         base = mean.rolling(TREND_WINDOWS, min_periods=1).mean().shift(1)
-        feats[f"{c}_trend"] = (mean - base) / (base.abs() + 1e-6)
+        feats[f"{c}_trend"] = mean - base
 
     feats["n_samples"] = grouped.size()
     feats["time"] = grouped["time"].max()
@@ -130,8 +130,52 @@ def build_training_table(train_dir, window_sec=DEFAULT_WINDOW_SEC, ttf_dir=None)
     for sensor_path, ttf_path in find_train_files(train_dir, ttf_dir):
         feats = make_features(load_sensor(sensor_path), window_sec)
         labels = make_labels(load_ttf(ttf_path), window_sec)
-        table = feats.join(labels, how="inner")
-        table.insert(0, "tool", tool_id_from_path(sensor_path))
-        frames.append(table)
-        print(f"[load] {sensor_path.name}: {len(table)} windows")
+        frames.append(_join_tool(sensor_path, feats, labels))
     return pd.concat(frames, ignore_index=True)
+
+
+def load_cached_table(features_dir):
+    """prepare_features.py가 저장한 윈도우 특징/라벨을 읽어 학습용 표로 합친다."""
+    features_dir = Path(features_dir)
+    frames = []
+    for feat_path in sorted((features_dir / "train").glob("*.csv")):
+        label_path = features_dir / "train_ttf" / feat_path.name
+        if not label_path.exists():
+            print(f"[warn] 라벨 파일이 없어 건너뜀: {label_path}")
+            continue
+        feats = pd.read_csv(feat_path, index_col="window")
+        labels = pd.read_csv(label_path, index_col="window")
+        frames.append(_join_tool(feat_path, feats, labels))
+    if not frames:
+        raise FileNotFoundError(f"{features_dir}에서 캐시된 특징 파일을 찾지 못했습니다.")
+    return pd.concat(frames, ignore_index=True)
+
+
+def _join_tool(path, feats, labels):
+    table = feats.join(labels, how="inner")
+    table.insert(0, "tool", tool_id_from_path(path))
+    print(f"[load] {Path(path).name}: {len(table)} windows")
+    return table
+
+
+def phm_subscores(gt, pred):
+    """PHM 2018 공식 채점의 셀 단위 부분 점수 (초 단위, 낮을수록 좋음).
+
+    정답/예측 모두 숫자: exp(-0.001*GT) * |GT - SUB|
+    정답만 NaN:         exp(-0.001*SUB) * SUB
+    예측만 NaN:         exp(-0.001*GT) * GT
+    둘 다 NaN:          0
+    파일 점수는 부분 점수의 평균(행 x TTF 컬럼 3개)이고, 최종 점수는 파일 점수의 합이다.
+    """
+    gt = np.asarray(gt, dtype=float)
+    pred = np.asarray(pred, dtype=float)
+    gt_nan, pred_nan = np.isnan(gt), np.isnan(pred)
+    with np.errstate(invalid="ignore", over="ignore"):
+        both = np.exp(-0.001 * gt) * np.abs(gt - pred)
+        only_gt_nan = np.exp(-0.001 * pred) * pred
+        only_pred_nan = np.exp(-0.001 * gt) * gt
+    return np.select(
+        [gt_nan & pred_nan, gt_nan, pred_nan],
+        [0.0, only_gt_nan, only_pred_nan],
+        default=both,
+    )
