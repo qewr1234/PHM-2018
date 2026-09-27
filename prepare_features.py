@@ -35,6 +35,11 @@ class _StreamReader(io.RawIOBase):
         return len(data)
 
 
+def open_member(tf, member):
+    """스트리밍 모드 tar의 멤버를 pandas가 읽을 수 있는 버퍼 객체로 연다."""
+    return io.BufferedReader(_StreamReader(tf.extractfile(member)), buffer_size=1 << 20)
+
+
 def prepare(archive, out_dir, window_sec=DEFAULT_WINDOW_SEC):
     out_dir = Path(out_dir)
     for sub in ["train", "train_ttf", "train_faults", "test"]:
@@ -47,7 +52,7 @@ def prepare(archive, out_dir, window_sec=DEFAULT_WINDOW_SEC):
                 continue
             parts = Path(member.name).parts
             name = Path(member.name).name
-            f = io.BufferedReader(_StreamReader(tf.extractfile(member)), buffer_size=1 << 20)
+            f = open_member(tf, member)
             start = time.time()
 
             if "train_faults" in parts:
