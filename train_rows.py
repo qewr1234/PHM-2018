@@ -135,9 +135,12 @@ def fit(sample_path, n_estimators=300, learning_rate=0.05, seed=0, save_proba=No
             objective="multiclass", num_class=N_CLASSES, n_estimators=n_estimators,
             learning_rate=learning_rate, num_leaves=63, min_child_samples=50,
             subsample=0.5, subsample_freq=1, colsample_bytree=0.5, max_bin=63,
+            # 클래스가 극도로 불균형하고 가중치가 커서 규제가 없으면 잎 값이 폭주해 확률이 0/1로 발산한다.
+            min_child_weight=10.0, reg_lambda=10.0, max_delta_step=1.0,
             random_state=seed, verbose=-1,
         )
-        model.fit(train[feature_cols], ttf_to_class(train[c]), sample_weight=train["weight"])
+        weight = train["weight"] / train["weight"].mean()
+        model.fit(train[feature_cols], ttf_to_class(train[c]), sample_weight=weight)
         C, actions = cost_matrix(train[c].to_numpy(dtype=float), train["weight"].to_numpy())
         proba = model.predict_proba(val[feature_cols])
         preds[:, i] = decide(proba, C, actions)
