@@ -1,0 +1,536 @@
+<title>이온 밀 FlowCool 고장 감지</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #f3f5f7;
+    --surface: #ffffff;
+    --ink: #141a21;
+    --muted: #5a6470;
+    --faint: #8a939e;
+    --line: #dde2e8;
+    --grid: #eceff3;
+    --s1: #2a78d6;
+    --s2: #eb6834;
+    --s3: #1baf7a;
+    --critical: #d03b3b;
+    --ref: #9aa3ad;
+    --sans: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #0f1317;
+      --surface: #171c21;
+      --ink: #edf0f3;
+      --muted: #a3acb7;
+      --faint: #76808b;
+      --line: #2a3139;
+      --grid: #20262d;
+      --s1: #3987e5;
+      --s2: #d95926;
+      --s3: #199e70;
+      --ref: #6d7782;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0f1317;
+    --surface: #171c21;
+    --ink: #edf0f3;
+    --muted: #a3acb7;
+    --faint: #76808b;
+    --line: #2a3139;
+    --grid: #20262d;
+    --s1: #3987e5;
+    --s2: #d95926;
+    --s3: #199e70;
+    --ref: #6d7782;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.6;
+    padding-inline: 20px;
+    padding-block: 32px 64px;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 40px; }
+  header { display: flex; flex-direction: column; gap: 12px; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.2; font-weight: 600; margin: 0; text-wrap: balance; }
+  h2 { font-size: 20px; font-weight: 600; margin: 0; text-wrap: balance; }
+  h3 { font-size: 15px; font-weight: 600; margin: 0; }
+  p { margin: 0; max-width: 68ch; }
+  .lede { color: var(--muted); font-size: 16px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; }
+  .tile .v { font-family: var(--mono); font-size: 28px; font-weight: 500; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .tile .k { color: var(--muted); font-size: 13px; }
+  section { display: flex; flex-direction: column; gap: 16px; }
+  .sec-head { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 20px; }
+  .sec-head p { color: var(--muted); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .sw.line { height: 2px; border-radius: 1px; width: 16px; }
+  .sw.dash { height: 0; width: 16px; border-top: 2px dashed var(--ref); background: none; border-radius: 0; }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  svg text { font-family: var(--sans); font-size: 11px; fill: var(--muted); }
+  svg .num { font-family: var(--mono); }
+  svg .ink { fill: var(--ink); }
+  svg .axis { stroke: var(--line); stroke-width: 1; }
+  svg .gridl { stroke: var(--grid); stroke-width: 1; }
+  svg .hit { fill: transparent; cursor: default; }
+  .note { font-size: 13px; color: var(--muted); }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-weight: 500; color: var(--muted); font-size: 13px; }
+  td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+  th.n { text-align: right; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .feat { display: flex; flex-direction: column; gap: 8px; }
+  .feat-row { display: grid; grid-template-columns: 1fr 64px; gap: 4px 10px; align-items: center; }
+  .feat-row .name { font-size: 13px; }
+  .feat-row .raw { font-family: var(--mono); font-size: 11px; color: var(--faint); grid-column: 1 / -1; margin-top: -4px; overflow-wrap: anywhere; }
+  .feat-row .bar { grid-column: 1 / 2; height: 8px; background: var(--grid); border-radius: 4px; overflow: hidden; }
+  .feat-row .bar i { display: block; height: 100%; border-radius: 4px; }
+  .feat-row .pct { font-family: var(--mono); font-size: 12px; text-align: right; color: var(--muted); grid-row: 1 / 2; grid-column: 2 / 3; }
+  ul.plain { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; max-width: 72ch; }
+  a { color: var(--s1); }
+  a:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
+  #tip { position: fixed; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 12px; line-height: 1.4; padding: 6px 9px; border-radius: 6px; max-width: 260px; z-index: 10; }
+  #tip b { font-weight: 600; }
+  footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; display: flex; flex-direction: column; gap: 4px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">PHM Society 2018 Data Challenge · Ion Mill Etch · Seagate</div>
+    <h1>이온 밀 FlowCool 고장 감지</h1>
+    <p class="lede">반도체 웨이퍼 식각 장비 20대의 4초 간격 센서 로그로, 웨이퍼 냉각용 헬륨 계통(FlowCool)에서 생기는 세 가지 고장이 1시간 안에 일어날지를 예측한 개인 프로젝트입니다.</p>
+  </header>
+
+  <div class="tiles" id="tiles"></div>
+
+  <section>
+    <div class="sec-head">
+      <h2>데이터</h2>
+      <p>장비마다 약 14~16개월 분량입니다. 값은 익명화·표준화되어 있고, 고장 시각은 작업자가 장비를 정지한 시점입니다. 같은 고장이 하루 안에 다시 나는 경우가 절반이라 장비별로 고장 건수 차이가 큽니다.</p>
+    </div>
+    <div class="panel">
+      <div class="legend" id="legend-faults"></div>
+      <div id="chart-tools"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>고장 직전 센서 변화</h2>
+      <p>레시피 단계마다 정상 범위가 달라서, 각 단계의 정상값 기준으로 얼마나 벗어났는지(z)를 봤습니다. 0은 정상 구간 평균입니다. 누설은 고장 15분 전부터 압력과 유량이 함께 떨어집니다.</p>
+    </div>
+    <div class="grid3" id="profiles"></div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>감지 성능</h2>
+      <p id="perf-desc"></p>
+    </div>
+    <div class="grid2">
+      <div class="panel">
+        <h3>ROC 곡선</h3>
+        <div class="legend" id="legend-roc"></div>
+        <div id="chart-roc"></div>
+      </div>
+      <div class="panel">
+        <h3>오경보 1% 기준, 남은 시간별 감지율</h3>
+        <div class="legend" id="legend-lead"></div>
+        <div id="chart-lead"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="tablewrap"><table id="perf-table"></table></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>위험도 타임라인</h2>
+      <p id="tl-desc"></p>
+    </div>
+    <div class="panel">
+      <div class="legend" id="legend-tl"></div>
+      <div id="chart-tl"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>모델이 주로 본 신호</h2>
+      <p>고장 모드별로 기여도(gain) 상위 특징입니다. 장비의 과거 고장 빈도와 최근 하루 동안의 압력·유량 이탈 이력이 공통으로 중요했습니다. 한 번 고장 난 장비가 곧 다시 고장 나는 패턴을 잡은 것입니다.</p>
+    </div>
+    <div class="grid3" id="importance"></div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>대회 채점식으로 보면</h2>
+      <p>대회 최종 점수는 두 점수의 평균이었습니다. 2차 점수는 고장까지 남은 시간을 숫자로 답했을 때 오차를 제곱으로 벌하고, 정답이 있는 곳에서 NaN으로 답하면 20점만 벌합니다. 그래서 오차를 14초 안으로 보장하지 못하면 NaN이 항상 유리합니다. 결정 규칙이 이 기대 벌점을 계산해 모든 구간에서 NaN을 골랐고, 점수는 전부 NaN으로 낸 제출과 같습니다.</p>
+    </div>
+    <div class="panel">
+      <div class="tablewrap"><table id="comp-table"></table></div>
+      <p class="note">검증 구간(장비별 마지막 25% 기간)에서 계산했습니다. 낮을수록 좋습니다. 대회 최종 순위(1위 0.762)는 공개되지 않은 별도 검증 세트와 정규화로 매겨져 직접 비교할 수 없습니다.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>방법</h2>
+    </div>
+    <ul class="plain">
+      <li>원본 34GB CSV(8,219만 행)를 압축 해제 없이 스트리밍으로 읽어 장비별 parquet으로 변환했습니다.</li>
+      <li>행마다 과거 데이터만 쓰는 특징 206개를 만들었습니다. 1분~하루 롤링 통계, 레시피 단계별 정상값 대비 z, 정상 구간에서 학습한 압력→유량 곡선의 잔차, 이탈·정지 이벤트 이후 경과 시간이 들어 있습니다.</li>
+      <li>남은 시간을 13개 구간으로 나눠 LightGBM 다중 분류로 확률을 예측했습니다. 고장 3시간 이내 행은 2행마다 하나, 나머지는 2%만 뽑고 가중치로 보정했습니다.</li>
+      <li>테스트 데이터가 같은 장비의 바로 다음 기간이라, 장비마다 앞 75% 기간으로 학습하고 뒤 25% 기간으로 검증했습니다.</li>
+      <li>압력→유량 잔차 특징은 Hitachi 팀 논문(PHM 2018 #590)에서 아이디어를 가져왔습니다.</li>
+    </ul>
+  </section>
+
+  <footer>
+    <span>코드: <a href="https://github.com/qewr1234/PHM-2018/tree/claude/compassionate-darwin-u8owid">github.com/qewr1234/PHM-2018</a></span>
+    <span>데이터: PHM Society 2018 Data Challenge (Seagate 제공 Ion Mill Etch 데이터)</span>
+  </footer>
+</div>
+<div id="tip" hidden></div>
+
+<script id="phm-data" type="application/json">{"overview": {"tools": 20, "train_rows": 82189440, "test_rows": 7198948, "faults_by_type": [741, 332, 137], "faults_by_tool": {"01_M01": [13, 5, 1], "01_M02": [53, 40, 16], "02_M01": [9, 7, 1], "02_M02": [5, 27, 0], "03_M01": [40, 51, 0], "03_M02": [298, 48, 9], "04_M01": [7, 1, 1], "04_M02": [21, 1, 15], "05_M01": [14, 7, 7], "05_M02": [5, 17, 5], "06_M01": [10, 3, 3], "06_M02": [28, 5, 26], "07_M01": [15, 2, 18], "07_M02": [3, 3, 0], "08_M01": [68, 32, 17], "08_M02": [0, 6, 0], "09_M01": [129, 19, 2], "09_M02": [8, 57, 0], "10_M01": [13, 1, 16], "10_M02": [2, 0, 0]}}, "profiles": {"bins": ["3~2시간", "2~1시간", "60~30분", "30~15분", "15~5분", "5~1분", "1분 이내"], "by_fault": {"압력 저하": {"FlowCool 압력 (단계 기준 z)": [-0.38, -0.899, -0.419, -0.364, -0.732, -0.6, -0.934], "FlowCool 유량 (단계 기준 z)": [-0.13, -0.868, -0.536, -0.869, -0.713, -0.355, -0.892], "압력 대비 유량 잔차": [-0.01, -0.05, -0.013, -0.005, -0.018, -0.033, -0.024]}, "압력 과다": {"FlowCool 압력 (단계 기준 z)": [1.108, 0.906, 1.127, 0.593, -0.011, -0.016, -0.295], "FlowCool 유량 (단계 기준 z)": [-0.912, -0.871, -1.513, -0.433, -0.31, -0.593, -1.038], "압력 대비 유량 잔차": [-0.237, -0.192, -0.257, -0.296, -0.318, -0.399, -0.425]}, "누설": {"FlowCool 압력 (단계 기준 z)": [-0.809, -1.393, -1.334, -1.777, -2.248, -2.412, -2.334], "FlowCool 유량 (단계 기준 z)": [-0.861, -1.857, -1.403, -2.434, -3.204, -2.65, -2.553], "압력 대비 유량 잔차": [-0.013, 0.015, 0.015, 0.019, 0.014, 0.005, 0.018]}}}, "detection": {"lead_bins": ["5분 이내", "5~15분", "15~30분", "30~60분", "1~3시간"], "faults": [{"fault": "압력 저하", "auc": 0.85, "ap": 0.0319, "base_rate": 0.00313, "recall_at_fa": 0.2136, "fa_rate": 0.01, "roc": [[0.0, 0.0], [0.0127, 0.2285], [0.0253, 0.3271], [0.038, 0.3973], [0.0506, 0.446], [0.0633, 0.4705], [0.076, 0.5014], [0.0886, 0.5375], [0.1013, 0.5614], [0.1139, 0.5836], [0.1266, 0.607], [0.1393, 0.6252], [0.1519, 0.6419], [0.1646, 0.6568], [0.1772, 0.6743], [0.1899, 0.6967], [0.2025, 0.7137], [0.2152, 0.7361], [0.2279, 0.7626], [0.2405, 0.7835], [0.2532, 0.7976], [0.2658, 0.8072], [0.2785, 0.8152], [0.2912, 0.8231], [0.3038, 0.8312], [0.3165, 0.841], [0.3291, 0.8496], [0.3418, 0.858], [0.3544, 0.8663], [0.3671, 0.8785], [0.3798, 0.8908], [0.3924, 0.8983], [0.4051, 0.9056], [0.4177, 0.9102], [0.4304, 0.9151], [0.443, 0.9186], [0.4557, 0.9217], [0.4684, 0.9268], [0.481, 0.9327], [0.4937, 0.938], [0.5063, 0.9423], [0.519, 0.947], [0.5317, 0.9501], [0.5443, 0.9522], [0.557, 0.9546], [0.5697, 0.9558], [0.5823, 0.9571], [0.595, 0.9582], [0.6076, 0.9591], [0.6203, 0.9599], [0.6329, 0.962], [0.6456, 0.966], [0.6582, 0.9687], [0.6709, 0.9706], [0.6836, 0.9721], [0.6962, 0.9748], [0.7089, 0.9763], [0.7215, 0.978], [0.7342, 0.9792], [0.7468, 0.9799], [0.7595, 0.9817], [0.7722, 0.9831], [0.7848, 0.9847], [0.7975, 0.9858], [0.8102, 0.9864], [0.8229, 0.9869], [0.8355, 0.9874], [0.8481, 0.988], [0.8608, 0.9891], [0.8734, 0.9917], [0.8862, 0.9926], [0.8989, 0.9941], [0.9115, 0.997], [0.9241, 0.9993], [0.9367, 1.0], [0.9497, 1.0], [0.962, 1.0], [0.9747, 1.0], [1.0, 1.0]], "recall_by_lead": [0.1677, 0.19, 0.223, 0.2224, 0.195], "threshold": 0.017551591619849205}, {"fault": "압력 과다", "auc": 0.822, "ap": 0.0348, "base_rate": 0.00127, "recall_at_fa": 0.299, "fa_rate": 0.01, "roc": [[0.0, 0.0], [0.0127, 0.3156], [0.0253, 0.3374], [0.038, 0.3701], [0.0506, 0.402], [0.0633, 0.4208], [0.076, 0.4352], [0.0886, 0.4546], [0.1013, 0.4675], [0.1139, 0.488], [0.1266, 0.5171], [0.1393, 0.55], [0.1519, 0.5763], [0.1646, 0.6047], [0.1772, 0.6389], [0.1899, 0.6612], [0.2025, 0.68], [0.2152, 0.695], [0.2279, 0.7064], [0.2405, 0.7222], [0.2532, 0.7358], [0.2658, 0.7464], [0.2785, 0.7543], [0.2911, 0.7606], [0.3038, 0.769], [0.3165, 0.7807], [0.3291, 0.7963], [0.3418, 0.8033], [0.3544, 0.8144], [0.3671, 0.8242], [0.3797, 0.8338], [0.3924, 0.8403], [0.4051, 0.8477], [0.4177, 0.8536], [0.4304, 0.8612], [0.443, 0.8668], [0.4557, 0.8723], [0.4684, 0.88], [0.481, 0.8884], [0.4937, 0.8994], [0.5063, 0.9098], [0.519, 0.9174], [0.5316, 0.9298], [0.5443, 0.9359], [0.557, 0.9416], [0.5696, 0.9455], [0.5823, 0.9491], [0.5949, 0.9527], [0.6076, 0.9576], [0.6203, 0.9597], [0.6329, 0.9622], [0.6456, 0.9646], [0.6582, 0.9669], [0.6709, 0.9703], [0.6835, 0.9716], [0.6962, 0.9734], [0.7089, 0.9754], [0.7215, 0.9772], [0.7342, 0.9787], [0.7469, 0.9799], [0.7595, 0.9807], [0.7722, 0.981], [0.7848, 0.9819], [0.7975, 0.9848], [0.8102, 0.9863], [0.8228, 0.9872], [0.8355, 0.9888], [0.8481, 0.9889], [0.8608, 0.9889], [0.8734, 0.989], [0.8861, 0.989], [0.8987, 0.989], [0.9114, 0.9892], [0.9241, 0.9892], [0.9367, 0.9892], [0.9494, 0.9894], [0.962, 0.9901], [0.9747, 0.994], [0.9873, 1.0], [1.0, 1.0]], "recall_by_lead": [0.2844, 0.3085, 0.2989, 0.2984, 0.2519], "threshold": 0.0015684396494179964}, {"fault": "누설", "auc": 0.881, "ap": 0.0107, "base_rate": 0.00067, "recall_at_fa": 0.3011, "fa_rate": 0.01, "roc": [[0.0, 0.0], [0.0127, 0.3376], [0.0253, 0.4043], [0.038, 0.4347], [0.0506, 0.5513], [0.0633, 0.6514], [0.076, 0.7099], [0.0886, 0.7443], [0.1013, 0.7607], [0.1139, 0.7722], [0.1266, 0.7799], [0.1392, 0.786], [0.1519, 0.789], [0.1646, 0.79], [0.1772, 0.7955], [0.1899, 0.7995], [0.2025, 0.8028], [0.2152, 0.8051], [0.2279, 0.808], [0.2405, 0.8131], [0.2532, 0.819], [0.2658, 0.8259], [0.2785, 0.8324], [0.2911, 0.8365], [0.3038, 0.8388], [0.3165, 0.8423], [0.3291, 0.8478], [0.3418, 0.8508], [0.3544, 0.8546], [0.3671, 0.8614], [0.3798, 0.8725], [0.3924, 0.8851], [0.4051, 0.8861], [0.4177, 0.8868], [0.4304, 0.8877], [0.443, 0.8896], [0.4557, 0.8952], [0.4684, 0.898], [0.481, 0.9013], [0.4937, 0.9088], [0.5063, 0.9155], [0.519, 0.9277], [0.5317, 0.9505], [0.5443, 0.955], [0.557, 0.9596], [0.5696, 0.9635], [0.5823, 0.9683], [0.595, 0.97], [0.6076, 0.9709], [0.6203, 0.9718], [0.6329, 0.9728], [0.6456, 0.9745], [0.6582, 0.9754], [0.6709, 0.977], [0.6836, 0.9832], [0.6963, 0.987], [0.709, 0.9889], [0.7216, 0.9916], [0.7342, 0.9926], [0.7469, 0.9961], [0.7595, 0.9971], [0.7722, 0.9977], [0.7848, 0.9987], [0.7975, 1.0], [0.8101, 1.0], [0.8228, 1.0], [0.8355, 1.0], [0.8484, 1.0], [0.8608, 1.0], [0.8735, 1.0], [0.8861, 1.0], [0.899, 1.0], [0.9114, 1.0], [0.9241, 1.0], [0.9368, 1.0], [0.9494, 1.0], [0.9621, 1.0], [0.9747, 1.0], [0.9873, 1.0], [1.0, 1.0]], "recall_by_lead": [0.3161, 0.4052, 0.3034, 0.2657, 0.1634], "threshold": 0.0011561405844986439}]}, "timeline": {"tool": "01_M02", "fault": "압력 저하", "hours": 48, "points": [[0.832, 0.0003], [0.884, 0.0002], [0.918, 0.0002], [0.953, 0.0002], [0.977, 0.0002], [1.014, 0.0003], [1.179, 0.0003], [1.423, 0.0006], [1.448, 0.0006], [1.637, 0.0008], [1.688, 0.0006], [1.768, 0.0005], [1.823, 0.0006], [1.847, 0.0006], [1.867, 0.0005], [1.909, 0.0006], [2.158, 0.0004], [2.251, 0.0002], [2.297, 0.0002], [2.322, 0.0002], [2.35, 0.0002], [2.413, 0.0003], [2.488, 0.0002], [2.526, 0.0001], [2.554, 0.0001], [2.742, 0.0001], [2.783, 0.0001], [2.793, 0.0001], [3.002, 0.0001], [3.023, 0.0001], [3.056, 0.0001], [3.088, 0.0001], [3.12, 0.0001], [3.152, 0.0001], [3.183, 0.0001], [3.216, 0.0002], [3.248, 0.0001], [3.28, 0.0001], [3.312, 0.0001], [3.343, 0.0001], [3.376, 0.0001], [3.408, 0.0001], [3.44, 0.0001], [3.472, 0.0001], [3.503, 0.0001], [3.536, 0.0001], [3.568, 0.0001], [3.599, 0.0001], [3.632, 0.0001], [3.664, 0.0001], [3.696, 0.0001], [3.728, 0.0001], [3.759, 0.0001], [3.792, 0.0006], [3.815, 0.0006], [3.862, 0.0007], [3.888, 0.0008], [3.919, 0.0011], [3.952, 0.0009], [3.984, 0.001], [4.022, 0.0006], [5.632, 0.0006], [5.648, 0.0006], [5.679, 0.0008], [5.712, 0.0008], [5.744, 0.001], [5.776, 0.0011], [5.808, 0.0011], [5.839, 0.0017], [5.872, 0.0013], [5.904, 0.0013], [5.936, 0.0021], [5.968, 0.0026], [5.992, 0.0071], [6.053, 0.0132], [6.122, 0.0197], [6.255, 0.0227], [6.281, 0.0242], [6.312, 0.0348], [6.389, 0.0493], [6.453, 0.0795], [6.563, 0.0189], [6.807, 0.0313], [6.932, 0.0393], [6.954, 0.0404], [7.034, 0.0417], [7.058, 0.0378], [7.078, 0.0385], [7.107, 0.0404], [7.154, 0.0346], [7.182, 0.0379], [7.202, 0.0397], [7.356, 0.0501], [7.365, 0.0474], [7.419, 0.0698], [7.478, 0.0602], [7.535, 0.0439], [7.588, 0.0376], [7.621, 0.0431], [7.669, 0.0377], [7.757, 0.0662], [7.824, 0.0532], [7.891, 0.0416], [7.959, 0.0291], [22.357, 0.0063], [22.411, 0.0061], [22.526, 0.0068], [22.548, 0.0061], [22.646, 0.0056], [22.752, 0.0085], [22.954, 0.0304], [22.993, 0.0345], [23.153, 0.01], [23.217, 0.0056], [23.254, 0.0039], [23.312, 0.0041], [23.386, 0.0022], [23.469, 0.0046], [23.498, 0.0032], [23.543, 0.0022], [23.598, 0.0017], [23.645, 0.0013], [23.693, 0.0017], [23.742, 0.0013], [23.826, 0.003], [23.933, 0.0004], [24.108, 0.0003], [24.137, 0.0004], [24.198, 0.0003], [24.287, 0.0003], [24.304, 0.0004], [24.449, 0.0004], [24.572, 0.0006], [24.593, 0.0004], [36.279, 0.0007], [36.304, 0.0013], [36.336, 0.0008], [36.368, 0.0011], [36.401, 0.0012], [36.432, 0.002], [36.464, 0.0039], [36.496, 0.0088], [36.528, 0.0144], [36.561, 0.0216], [36.592, 0.0259], [36.624, 0.0358], [36.656, 0.0458], [36.688, 0.0455], [36.721, 0.0587], [36.752, 0.0563], [36.784, 0.0495], [36.816, 0.0266], [36.848, 0.0282], [36.881, 0.0277], [36.912, 0.03], [36.944, 0.0253], [36.976, 0.0155], [37.008, 0.0174], [37.041, 0.0234], [37.072, 0.0318], [37.104, 0.0351], [37.136, 0.0333], [37.168, 0.0349], [37.201, 0.0451], [37.232, 0.0525], [37.264, 0.0365], [37.296, 0.0461], [37.328, 0.047], [37.361, 0.0542], [37.392, 0.0418], [37.424, 0.0402], [37.456, 0.0349], [37.488, 0.0333], [37.521, 0.0327], [37.552, 0.0317], [37.584, 0.0326], [37.616, 0.0366], [37.648, 0.0416], [37.681, 0.0426], [37.712, 0.0461], [37.744, 0.0427], [37.776, 0.0387], [37.808, 0.0408], [37.841, 0.0467], [37.872, 0.0441], [37.904, 0.0438], [37.936, 0.0399], [37.968, 0.0471], [38.001, 0.0444], [38.032, 0.0515], [38.064, 0.0724], [38.096, 0.0695], [38.128, 0.0649], [38.161, 0.0538], [38.192, 0.0519], [38.224, 0.0579], [38.242, 0.0519], [38.618, 0.0575], [38.639, 0.061], [38.672, 0.0546], [38.704, 0.0456], [38.736, 0.0392], [38.768, 0.0352], [38.799, 0.0323], [38.832, 0.0563], [38.864, 0.0623], [38.896, 0.043], [38.928, 0.0478], [38.959, 0.0631], [38.992, 0.0526], [39.024, 0.0405], [39.056, 0.0407], [39.088, 0.0387], [39.119, 0.0359], [39.152, 0.0382], [39.184, 0.0417], [39.216, 0.0423], [39.248, 0.0416], [39.279, 0.0455], [39.312, 0.0616], [39.344, 0.0877], [39.376, 0.0655], [39.408, 0.0695], [39.439, 0.0687], [39.472, 0.0736], [39.504, 0.0672], [39.536, 0.0909], [39.568, 0.0813], [39.599, 0.1204], [39.632, 0.1246], [39.664, 0.1193], [39.696, 0.1074], [39.728, 0.1133], [39.759, 0.1133], [39.792, 0.1153], [39.824, 0.1158], [39.856, 0.1324], [39.888, 0.1302], [39.919, 0.1189], [39.952, 0.1002], [39.984, 0.0998], [40.016, 0.0971], [40.046, 0.1152], [40.113, 0.0891], [40.149, 0.217], [40.305, 0.1601], [40.363, 0.1753], [40.438, 0.2117], [40.484, 0.153], [40.568, 0.0399], [40.608, 0.0369], [40.653, 0.0299], [40.722, 0.0222], [40.765, 0.0268], [40.815, 0.047], [40.845, 0.049], [40.871, 0.0477], [41.032, 0.0498], [41.096, 0.0281], [41.183, 0.0511], [41.205, 0.0424]], "faults": [6.0, 36.482, 36.992, 38.641, 40.059], "threshold": 0.017551591619849205}, "importance": {"압력 저하": [["rate_0", 0.1281], ["FLOWCOOLPRESSURE_max_30m", 0.0557], ["ETCHAUX2SOURCETIMER", 0.0328], ["ETCHBEAMCURRENT_min_3h", 0.0285], ["n_f_low_1d", 0.0282], ["FLOWCOOLFLOWRATE_max_3h", 0.0269], ["FLOWCOOLPRESSURE_max_1d", 0.0251], ["FLOWCOOLPRESSURE_mean_3h", 0.0247]], "압력 과다": [["FLOWCOOLPRESSURE_max_1d", 0.215], ["rate_1", 0.051], ["since_p_high", 0.0407], ["FLOWCOOLPRESSURE_max_3h", 0.0313], ["n_f_low_1d", 0.0273], ["recipe", 0.0227], ["FLOWCOOLPRESSURE_min_30m", 0.0217], ["n_p_low_1d", 0.021]], "누설": [["rate_2", 0.0737], ["FLOWCOOLPRESSURE_mean_3h", 0.0655], ["stops_5m_1d", 0.0554], ["ETCHAUXSOURCETIMER", 0.0516], ["ETCHSUPPRESSORCURRENT_z_min_30m", 0.0448], ["FLOWCOOLFLOWRATE_max_1d", 0.0369], ["n_f_high_1d", 0.0365], ["ETCHSOURCEUSAGE", 0.034]]}, "competition": {"S1": {"model": 9.306, "all_nan": 9.306}, "S2": {"model": 143.263, "all_nan": 143.263}, "final": {"model": 76.284, "all_nan": 76.284}}, "split": {"train_rows": 1663786, "val_rows": 543457}}</script>
+<script>
+(function () {
+  const D = JSON.parse(document.getElementById("phm-data").textContent);
+  const FAULTS = ["압력 저하", "압력 과다", "누설"];
+  const FULL = ["FlowCool Pressure Dropped Below Limit", "Flowcool Pressure Too High Check Flowcool Pump", "Flowcool leak"];
+  const COL = ["var(--s1)", "var(--s2)", "var(--s3)"];
+  const NS = "http://www.w3.org/2000/svg";
+  const tip = document.getElementById("tip");
+
+  function el(tag, attrs, parent, text) {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (text !== undefined) e.textContent = text;
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function h(tag, attrs, parent, html) {
+    const e = document.createElement(tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (html !== undefined) e.innerHTML = html;
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function showTip(evt, html) {
+    tip.innerHTML = html;
+    tip.hidden = false;
+    const pad = 14, w = tip.offsetWidth, hgt = tip.offsetHeight;
+    let x = evt.clientX + pad, y = evt.clientY + pad;
+    if (x + w > window.innerWidth - 8) x = evt.clientX - w - pad;
+    if (y + hgt > window.innerHeight - 8) y = evt.clientY - hgt - pad;
+    tip.style.left = x + "px";
+    tip.style.top = y + "px";
+  }
+  function hideTip() { tip.hidden = true; }
+  function withTip(node, html) {
+    node.addEventListener("pointermove", e => showTip(e, html));
+    node.addEventListener("pointerleave", hideTip);
+  }
+  const fmt = n => n.toLocaleString("ko-KR");
+  const pct = (v, d = 1) => (v * 100).toFixed(d) + "%";
+  function legend(id, items) {
+    const box = document.getElementById(id);
+    items.forEach(it => {
+      const s = h("span", {}, box);
+      const sw = h("i", { class: "sw " + (it.kind || "") }, s);
+      if (it.kind !== "dash") sw.style.background = it.color;
+      if (it.kind === "dash" && it.color) sw.style.borderTopColor = it.color;
+      s.appendChild(document.createTextNode(it.label));
+    });
+  }
+
+  // 요약 타일
+  const ov = D.overview, det = D.detection.faults;
+  const bestLift = Math.max(...det.map(f => f.recall_at_fa / f.fa_rate));
+  const tiles = [
+    [(ov.train_rows / 1e4).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",") + "만", "학습 센서 행 (약 4초 간격)"],
+    [ov.tools + "대", "식각 장비"],
+    [fmt(ov.faults_by_type.reduce((a, b) => a + b, 0)) + "건", "FlowCool 고장 기록 (중복 제거)"],
+    [Math.round(bestLift) + "배", "무작위 경보 대비 고장 직전 감지율 (최고)"],
+  ];
+  const tbox = document.getElementById("tiles");
+  tiles.forEach(([v, k]) => h("div", { class: "tile" }, tbox, `<span class="v">${v}</span><span class="k">${k}</span>`));
+
+  legend("legend-faults", FAULTS.map((f, i) => ({ label: `${f} (${fmt(ov.faults_by_type[i])}건)`, color: COL[i] })));
+
+  // 장비별 고장 건수: 가로 누적 막대
+  (function () {
+    const tools = Object.keys(ov.faults_by_tool).sort();
+    const rows = tools.map(t => ({ t, v: ov.faults_by_tool[t] }));
+    const max = Math.max(...rows.map(r => r.v.reduce((a, b) => a + b, 0)));
+    const W = 720, rowH = 20, L = 58, R = 40, T = 6;
+    const H = T + rows.length * rowH + 22;
+    const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "장비별 고장 건수" }, document.getElementById("chart-tools"));
+    const x = v => L + (v / max) * (W - L - R);
+    [0, 100, 200, 300].filter(v => v <= max).forEach(v => {
+      el("line", { x1: x(v), x2: x(v), y1: T, y2: T + rows.length * rowH, class: "gridl" }, svg);
+      el("text", { x: x(v), y: H - 4, "text-anchor": "middle", class: "num" }, svg, v);
+    });
+    rows.forEach((r, i) => {
+      const y = T + i * rowH;
+      el("text", { x: L - 8, y: y + rowH / 2 + 4, "text-anchor": "end", class: "num ink" }, svg, r.t);
+      let acc = 0;
+      const total = r.v.reduce((a, b) => a + b, 0);
+      r.v.forEach((v, k) => {
+        if (!v) return;
+        const x0 = x(acc), x1 = x(acc + v);
+        const rect = el("rect", { x: x0, y: y + 4, width: Math.max(x1 - x0 - 2, 1), height: rowH - 8, fill: COL[k], rx: 2 }, svg);
+        withTip(rect, `<b>${r.t}</b><br>${FAULTS[k]}: ${v}건`);
+        acc += v;
+      });
+      el("text", { x: x(total) + 6, y: y + rowH / 2 + 4, class: "num" }, svg, total);
+    });
+  })();
+
+  // 고장 직전 센서 변화: 고장별 소형 다중 차트
+  (function () {
+    const P = D.profiles, box = document.getElementById("profiles");
+    const feats = [["FlowCool 압력 (단계 기준 z)", "압력", ""], ["FlowCool 유량 (단계 기준 z)", "유량", "5 4"]];
+    let lo = 0, hi = 0;
+    FAULTS.forEach(f => feats.forEach(([k]) => P.by_fault[f][k].forEach(v => { lo = Math.min(lo, v); hi = Math.max(hi, v); })));
+    lo = Math.floor(lo); hi = Math.ceil(hi);
+    FAULTS.forEach((f, i) => {
+      const panel = h("div", { class: "panel" }, box);
+      h("h3", {}, panel, `<span class="pill"><i class="dot" style="background:${COL[i]}"></i>${f}</span>`);
+      const W = 340, H = 210, L = 30, R = 44, T = 10, B = 44;
+      const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `${f} 고장 직전 압력과 유량 변화` }, panel);
+      const n = P.bins.length;
+      const x = j => L + (j / (n - 1)) * (W - L - R);
+      const y = v => T + ((hi - v) / (hi - lo)) * (H - T - B);
+      for (let v = lo; v <= hi; v++) {
+        el("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), class: v === 0 ? "axis" : "gridl" }, svg);
+        el("text", { x: L - 6, y: y(v) + 4, "text-anchor": "end", class: "num" }, svg, v);
+      }
+      P.bins.forEach((b, j) => {
+        if (j % 2 === 0 || j === n - 1) el("text", { x: x(j), y: H - B + 16, "text-anchor": "middle" }, svg, b);
+      });
+      el("text", { x: L, y: H - 6 }, svg, "← 고장까지 남은 시간");
+      const ends = [];
+      feats.forEach(([k, short, dash]) => {
+        const vals = P.by_fault[f][k];
+        const d = vals.map((v, j) => `${j ? "L" : "M"}${x(j)},${y(v)}`).join("");
+        el("path", { d, fill: "none", stroke: COL[i], "stroke-width": 2, "stroke-dasharray": dash, "stroke-linejoin": "round" }, svg);
+        vals.forEach((v, j) => {
+          const c = el("circle", { cx: x(j), cy: y(v), r: 3.5, fill: COL[i], stroke: "var(--surface)", "stroke-width": 2 }, svg);
+          const hit = el("circle", { cx: x(j), cy: y(v), r: 10, class: "hit" }, svg);
+          withTip(hit, `<b>${f} · ${short}</b><br>${P.bins[j]}: z ${v.toFixed(2)}`);
+        });
+        ends.push([short, y(vals[n - 1])]);
+      });
+      // 끝 값이 비슷하면 라벨이 겹치지 않게 위아래로 벌린다.
+      ends.sort((a, b) => a[1] - b[1]);
+      if (ends.length === 2 && ends[1][1] - ends[0][1] < 13) {
+        const mid = (ends[0][1] + ends[1][1]) / 2;
+        ends[0][1] = mid - 6.5; ends[1][1] = mid + 6.5;
+      }
+      ends.forEach(([short, ly]) => el("text", { x: x(n - 1) + 8, y: ly + 4, class: "ink" }, svg, short));
+    });
+    const note = h("p", { class: "note" }, box.parentElement, "실선은 FlowCool 압력, 점선은 FlowCool 유량입니다. 학습·검증 표본 전체의 평균입니다.");
+  })();
+
+  // 감지 성능 설명과 표
+  (function () {
+    const rs = det.map(f => pct(f.recall_at_fa, 0)).join(", ");
+    document.getElementById("perf-desc").textContent =
+      `검증 구간(장비별 마지막 25% 기간)에서, 고장이 1시간 안에 일어날 구간을 골라내는 능력입니다. 정상 구간의 1%에서만 경보가 울리도록 기준을 잡으면 고장 1시간 이내 구간의 ${rs}를 잡아냅니다. 무작위로 경보를 울리면 1%입니다.`;
+    const t = document.getElementById("perf-table");
+    t.innerHTML = `<thead><tr><th>고장</th><th class="n">AUC</th><th class="n">무작위 AUC</th><th class="n">감지율 (오경보 1%)</th><th class="n">무작위 대비</th><th class="n">평균 정밀도 (AP)</th><th class="n">1시간 이내 구간 비율</th></tr></thead>`;
+    const tb = h("tbody", {}, t);
+    det.forEach((f, i) => {
+      h("tr", {}, tb, `<td><span class="pill"><i class="dot" style="background:${COL[i]}"></i>${f.fault}</span></td>
+        <td class="n">${f.auc.toFixed(3)}</td><td class="n">0.500</td>
+        <td class="n">${pct(f.recall_at_fa)}</td><td class="n">${(f.recall_at_fa / f.fa_rate).toFixed(0)}배</td>
+        <td class="n">${f.ap.toFixed(3)}</td><td class="n">${pct(f.base_rate, 2)}</td>`);
+    });
+  })();
+
+  // ROC
+  (function () {
+    legend("legend-roc", det.map((f, i) => ({ label: `${f.fault} (AUC ${f.auc.toFixed(2)})`, color: COL[i], kind: "line" })).concat([{ label: "무작위 (AUC 0.50)", kind: "dash" }]));
+    const W = 360, H = 300, L = 52, R = 14, T = 10, B = 38;
+    const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "고장별 ROC 곡선" }, document.getElementById("chart-roc"));
+    const x = v => L + v * (W - L - R), y = v => T + (1 - v) * (H - T - B);
+    [0, 0.25, 0.5, 0.75, 1].forEach(v => {
+      el("line", { x1: x(v), x2: x(v), y1: y(0), y2: y(1), class: "gridl" }, svg);
+      el("line", { x1: x(0), x2: x(1), y1: y(v), y2: y(v), class: "gridl" }, svg);
+      el("text", { x: x(v), y: H - B + 16, "text-anchor": "middle", class: "num" }, svg, v);
+      el("text", { x: L - 6, y: y(v) + 4, "text-anchor": "end", class: "num" }, svg, v);
+    });
+    el("text", { x: (L + W - R) / 2, y: H - 4, "text-anchor": "middle" }, svg, "오경보율 (정상 구간 중 경보 비율)");
+    el("text", { x: 10, y: (T + H - B) / 2, "text-anchor": "middle", transform: `rotate(-90 10 ${(T + H - B) / 2})` }, svg, "감지율");
+    el("line", { x1: x(0), y1: y(0), x2: x(1), y2: y(1), stroke: "var(--ref)", "stroke-width": 1.5, "stroke-dasharray": "5 4" }, svg);
+    det.forEach((f, i) => {
+      const d = f.roc.map((p, j) => `${j ? "L" : "M"}${x(p[0])},${y(p[1])}`).join("");
+      el("path", { d, fill: "none", stroke: COL[i], "stroke-width": 2, "stroke-linejoin": "round" }, svg);
+    });
+    const hit = el("rect", { x: L, y: T, width: W - L - R, height: H - T - B, class: "hit" }, svg);
+    hit.addEventListener("pointermove", e => {
+      const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+      const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+      const fx = Math.min(1, Math.max(0, (p.x - L) / (W - L - R)));
+      const lines = det.map((f, i) => {
+        let best = f.roc[0];
+        f.roc.forEach(q => { if (q[0] <= fx) best = q; });
+        return `<span style="color:${getComputedStyle(document.documentElement).getPropertyValue(["--s1","--s2","--s3"][i])}">■</span> ${f.fault}: 감지율 ${pct(best[1])}`;
+      });
+      showTip(e, `<b>오경보율 ${pct(fx)}</b><br>${lines.join("<br>")}`);
+    });
+    hit.addEventListener("pointerleave", hideTip);
+  })();
+
+  // 남은 시간별 감지율: 묶음 막대
+  (function () {
+    const bins = D.detection.lead_bins;
+    legend("legend-lead", det.map((f, i) => ({ label: f.fault, color: COL[i] })).concat([{ label: "무작위 (1%)", kind: "dash" }]));
+    const W = 360, H = 300, L = 40, R = 10, T = 10, B = 38;
+    const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "고장까지 남은 시간별 감지율" }, document.getElementById("chart-lead"));
+    const max = 0.5;
+    const y = v => T + (1 - v / max) * (H - T - B);
+    [0, 0.1, 0.2, 0.3, 0.4, 0.5].forEach(v => {
+      el("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), class: v === 0 ? "axis" : "gridl" }, svg);
+      el("text", { x: L - 6, y: y(v) + 4, "text-anchor": "end", class: "num" }, svg, (v * 100) + "%");
+    });
+    const gw = (W - L - R) / bins.length, bw = Math.min(16, (gw - 14) / 3);
+    bins.forEach((b, j) => {
+      const gx = L + j * gw + (gw - bw * 3 - 4) / 2;
+      det.forEach((f, i) => {
+        const v = f.recall_by_lead[j];
+        if (v == null) return;
+        const bx = gx + i * (bw + 2);
+        const r = el("rect", { x: bx, y: y(v), width: bw, height: Math.max(y(0) - y(v), 1), fill: COL[i], rx: 2 }, svg);
+        const hit = el("rect", { x: bx - 1, y: T, width: bw + 2, height: H - T - B, class: "hit" }, svg);
+        withTip(hit, `<b>${f.fault} · 고장 ${b}</b><br>감지율 ${pct(v)}`);
+      });
+      el("text", { x: L + j * gw + gw / 2, y: H - B + 16, "text-anchor": "middle" }, svg, b);
+    });
+    el("line", { x1: L, x2: W - R, y1: y(0.01), y2: y(0.01), stroke: "var(--ref)", "stroke-width": 1.5, "stroke-dasharray": "5 4" }, svg);
+    el("text", { x: (L + W - R) / 2, y: H - 4, "text-anchor": "middle" }, svg, "고장까지 남은 시간");
+  })();
+
+  // 타임라인
+  (function () {
+    const tl = D.timeline, fi = FAULTS.indexOf(tl.fault);
+    document.getElementById("tl-desc").textContent =
+      `검증 구간에서 ${tl.tool} 장비의 "${tl.fault}" 고장이 가장 몰린 ${tl.hours}시간입니다. 선은 모델이 계산한 "1시간 안에 고장날 확률"이고, 점선은 오경보 1% 기준선입니다. 고장이 반복되는 구간에서 위험도가 먼저 올라가는지 볼 수 있습니다.`;
+    legend("legend-tl", [
+      { label: "1시간 이내 고장 확률", color: COL[fi], kind: "line" },
+      { label: "오경보 1% 기준선", kind: "dash" },
+      { label: "실제 고장 시각", color: "var(--critical)", kind: "line" },
+    ]);
+    const W = 1000, H = 260, L = 48, R = 16, T = 18, B = 36;
+    const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "위험도 타임라인" }, document.getElementById("chart-tl"));
+    const pts = tl.points;
+    const ymax = Math.max(0.05, Math.ceil(Math.max(...pts.map(p => p[1]), tl.threshold) * 20) / 20);
+    const x = v => L + (v / tl.hours) * (W - L - R), y = v => T + (1 - v / ymax) * (H - T - B);
+    const step = ymax <= 0.1 ? 0.02 : ymax <= 0.3 ? 0.05 : 0.1;
+    for (let v = 0; v <= ymax + 1e-9; v += step) {
+      el("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), class: v === 0 ? "axis" : "gridl" }, svg);
+      el("text", { x: L - 6, y: y(v) + 4, "text-anchor": "end", class: "num" }, svg, (v * 100).toFixed(0) + "%");
+    }
+    for (let hh = 0; hh <= tl.hours; hh += 6) el("text", { x: x(hh), y: H - B + 16, "text-anchor": "middle", class: "num" }, svg, hh + "h");
+    el("text", { x: W - R, y: H - 4, "text-anchor": "end" }, svg, "구간 시작부터 경과 시간");
+    const area = `M${x(pts[0][0])},${y(0)}` + pts.map(p => `L${x(p[0])},${y(p[1])}`).join("") + `L${x(pts[pts.length - 1][0])},${y(0)}Z`;
+    const ap = el("path", { d: area, fill: COL[fi], opacity: 0.12 }, svg);
+    el("path", { d: pts.map((p, j) => `${j ? "L" : "M"}${x(p[0])},${y(p[1])}`).join(""), fill: "none", stroke: COL[fi], "stroke-width": 1.6, "stroke-linejoin": "round" }, svg);
+    el("line", { x1: L, x2: W - R, y1: y(tl.threshold), y2: y(tl.threshold), stroke: "var(--ref)", "stroke-width": 1.5, "stroke-dasharray": "5 4" }, svg);
+    tl.faults.forEach(f => {
+      el("line", { x1: x(f), x2: x(f), y1: T, y2: y(0), stroke: "var(--critical)", "stroke-width": 1.5 }, svg);
+    });
+    el("text", { x: x(tl.faults[0]) + 4, y: T + 10, class: "ink" }, svg, "고장");
+    const cross = el("line", { x1: 0, x2: 0, y1: T, y2: y(0), stroke: "var(--muted)", "stroke-width": 1, visibility: "hidden" }, svg);
+    const dot = el("circle", { r: 4, fill: COL[fi], stroke: "var(--surface)", "stroke-width": 2, visibility: "hidden" }, svg);
+    const hit = el("rect", { x: L, y: T, width: W - L - R, height: H - T - B, class: "hit" }, svg);
+    hit.addEventListener("pointermove", e => {
+      const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+      const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+      const hv = (p.x - L) / (W - L - R) * tl.hours;
+      let best = pts[0];
+      pts.forEach(q => { if (Math.abs(q[0] - hv) < Math.abs(best[0] - hv)) best = q; });
+      cross.setAttribute("x1", x(best[0])); cross.setAttribute("x2", x(best[0])); cross.setAttribute("visibility", "visible");
+      dot.setAttribute("cx", x(best[0])); dot.setAttribute("cy", y(best[1])); dot.setAttribute("visibility", "visible");
+      const next = tl.faults.filter(f => f >= best[0]).sort((a, b) => a - b)[0];
+      const left = next === undefined ? "이 구간에서 다음 고장 없음" : `다음 고장까지 ${((next - best[0]) * 60).toFixed(0)}분`;
+      showTip(e, `<b>${best[0].toFixed(1)}h</b><br>고장 확률 ${pct(best[1])}<br>${left}`);
+    });
+    hit.addEventListener("pointerleave", () => { hideTip(); cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); });
+  })();
+
+  // 중요 특징
+  (function () {
+    const S = { FLOWCOOLPRESSURE: "FlowCool 압력", FLOWCOOLFLOWRATE: "FlowCool 유량", IONGAUGEPRESSURE: "챔버 압력",
+      ETCHBEAMCURRENT: "빔 전류", ETCHSUPPRESSORCURRENT: "억제 그리드 전류", ETCHAUX2SOURCETIMER: "차폐막 소모품 타이머 2",
+      ETCHAUXSOURCETIMER: "차폐막 소모품 타이머", ETCHSOURCEUSAGE: "그리드 소모품 사용량", ETCHBEAMVOLTAGE: "빔 전압" };
+    const WIN = { "1m": "1분", "5m": "5분", "30m": "30분", "3h": "3시간", "1d": "하루", "1h": "1시간" };
+    const STAT = { mean: "평균", min: "최솟값", max: "최댓값", std: "표준편차", dev: "평균 대비 편차" };
+    const EV = { p_low: "압력 하향 이탈", p_high: "압력 상향 이탈", f_low: "유량 하향 이탈", f_high: "유량 상향 이탈" };
+    function label(n) {
+      let m;
+      if ((m = n.match(/^rate_(\d)$/))) return `이 장비의 과거 '${FAULTS[+m[1]]}' 고장 빈도`;
+      if ((m = n.match(/^n_(p_low|p_high|f_low|f_high)_(\w+)$/))) return `최근 ${WIN[m[2]]} ${EV[m[1]]} 횟수`;
+      if ((m = n.match(/^since_(p_low|p_high|f_low|f_high)$/))) return `마지막 ${EV[m[1]]} 이후 경과 시간`;
+      if ((m = n.match(/^stops_(\w+)_1d$/))) return `최근 하루 ${WIN[m[1]]} 이상 정지 횟수`;
+      if ((m = n.match(/^since_stop_(\w+)$/))) return `마지막 ${WIN[m[1]]} 이상 정지 이후 경과`;
+      if ((m = n.match(/^flow_resid(?:_(mean|min|max)_(\w+))?$/))) return m[1] ? `압력 대비 유량 잔차 ${WIN[m[2]]} ${STAT[m[1]]}` : "압력 대비 유량 잔차";
+      if ((m = n.match(/^([A-Z0-9]+)_z(?:_(mean|min|max)_(\w+))?$/))) return `${S[m[1]] || m[1]} 단계 기준 z` + (m[2] ? ` ${WIN[m[3]]} ${STAT[m[2]]}` : "");
+      if ((m = n.match(/^([A-Z0-9]+)_(mean|min|max|std|dev)_(\w+)$/))) return `${S[m[1]] || m[1]} ${WIN[m[3]]} ${STAT[m[2]]}`;
+      if (S[n]) return S[n] + " (현재 값)";
+      if (n === "recipe") return "레시피";
+      if (n === "recipe_step") return "레시피 단계";
+      return n;
+    }
+    const box = document.getElementById("importance");
+    FAULTS.forEach((f, i) => {
+      const items = D.importance[f];
+      const top = items[0][1];
+      const panel = h("div", { class: "panel" }, box);
+      h("h3", {}, panel, `<span class="pill"><i class="dot" style="background:${COL[i]}"></i>${f}</span>`);
+      const list = h("div", { class: "feat" }, panel);
+      items.forEach(([name, share]) => {
+        const row = h("div", { class: "feat-row" }, list);
+        h("span", { class: "name" }, row, label(name));
+        h("span", { class: "pct" }, row, pct(share, 1));
+        h("span", { class: "raw" }, row, name);
+        const bar = h("span", { class: "bar" }, row);
+        const fill = h("i", {}, bar);
+        fill.style.width = (share / top * 100).toFixed(1) + "%";
+        fill.style.background = COL[i];
+      });
+    });
+  })();
+
+  // 대회 점수 표
+  (function () {
+    const C = D.competition, t = document.getElementById("comp-table");
+    const names = { S1: "원래 점수 S1", S2: "2차 점수 S2", final: "최종 (S1 + S2) / 2" };
+    t.innerHTML = `<thead><tr><th>점수</th><th class="n">우리 모델</th><th class="n">전부 NaN 제출</th></tr></thead>`;
+    const tb = h("tbody", {}, t);
+    ["S1", "S2", "final"].forEach(k => h("tr", {}, tb, `<td>${names[k]}</td><td class="n">${C[k].model.toFixed(3)}</td><td class="n">${C[k].all_nan.toFixed(3)}</td>`));
+  })();
+})();
+</script>
