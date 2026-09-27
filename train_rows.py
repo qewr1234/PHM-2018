@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 
 from phm_data import FAULT_NAMES, TTF_COLS, phm_subscores
-from row_features import make_row_features
+from row_features import fit_step_stats, make_row_features
 
 BIN_EDGES = np.array([0, 30, 60, 120, 240, 480, 900, 1500, 2400, 3600, 5400, 7200, 10800])
 NEAR_SEC = BIN_EDGES[-1]
@@ -66,7 +66,9 @@ def build_sample(rows_dir, out_path, split_q=0.75, near_step=2, far_frac=0.02, s
         keep = (near & (idx % near_step == 0)) | (~near & (rng.random(len(y)) < far_frac))
 
         boundary = np.quantile(sensor["time"].to_numpy(), split_q)
-        sample = make_row_features(sensor, rows=keep)
+        # 단계별 정상값 기준은 학습 기간 데이터로만 만든다(검증 기간 정보가 섞이지 않게).
+        step_stats = fit_step_stats(sensor[sensor["time"] < boundary])
+        sample = make_row_features(sensor, rows=keep, step_stats=step_stats)
         for k, v in fault_rates(rows_dir / "train_faults", tool, until=boundary).items():
             sample[k] = np.float32(v)
         sample["tool"] = tool

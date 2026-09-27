@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from phm_data import SENSOR_COLS
-from row_features import make_row_features
+from row_features import fit_step_stats, make_row_features
 from train_rows import FAR_CLASS, N_CLASSES, cost_matrix, decide, ttf_to_class
 
 
@@ -32,8 +32,10 @@ def test_row_features_are_causal():
                        "recipe": 1, "recipe_step": 1})
     for c in SENSOR_COLS:
         df[c] = np.random.default_rng(1).standard_normal(n).astype(np.float32)
-    base = make_row_features(df)
+    stats = fit_step_stats(df.iloc[:100])
+    base = make_row_features(df, step_stats=stats)
     changed = df.copy()
     changed.loc[150:, SENSOR_COLS] += 100  # 미래 값만 바꿈
-    after = make_row_features(changed)
+    after = make_row_features(changed, step_stats=stats)
+    assert "since_p_low" in base.columns and "FLOWCOOLPRESSURE_z" in base.columns
     pd.testing.assert_frame_equal(base.iloc[:150], after.iloc[:150])
