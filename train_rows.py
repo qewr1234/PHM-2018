@@ -20,11 +20,13 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
-from phm_data import FAULT_NAMES, TTF_COLS, phm_subscores
+from phm_data import (FAULT_NAMES, TTF_COLS, phm_subscores, phm_subscores_final,
+                      phm_subscores_secondary)
 from row_features import fit_step_stats, make_row_features
 
 BIN_EDGES = np.array([0, 30, 60, 120, 240, 480, 900, 1500, 2400, 3600, 5400, 7200, 10800])
 NEAR_SEC = BIN_EDGES[-1]
+NORMAL_SEC = 50000  # 이보다 고장이 멀면 정상 구간으로 본다 (Hitachi 팀 논문의 기준)
 FAR_CLASS = len(BIN_EDGES) - 1  # 0..11: 가까운 구간, 12: 3시간 이상 또는 고장 없음(NaN)
 N_CLASSES = FAR_CLASS + 1
 ACTION_GRID = np.arange(0, 7201, 20, dtype=float)  # 숫자로 답할 때 후보 TTF(초)
@@ -67,7 +69,10 @@ def build_sample(rows_dir, out_path, split_q=0.75, near_step=2, far_frac=0.02, s
 
         boundary = np.quantile(sensor["time"].to_numpy(), split_q)
         # 단계별 정상값 기준은 학습 기간 데이터로만 만든다(검증 기간 정보가 섞이지 않게).
-        step_stats = fit_step_stats(sensor[sensor["time"] < boundary])
+        in_train = sensor["time"].to_numpy() < boundary
+        # 압력 -> 유량 곡선은 모든 고장까지 NORMAL_SEC 이상 남았거나 고장이 없는 정상 구간으로만 학습한다.
+        normal = (np.nan_to_num(y, nan=np.inf) >= NORMAL_SEC).all(axis=1)
+        step_stats = fit_step_stats(sensor[in_train], normal=normal[in_train])
         sample = make_row_features(sensor, rows=keep, step_stats=step_stats)
         for k, v in fault_rates(rows_dir / "train_faults", tool, until=boundary).items():
             sample[k] = np.float32(v)
@@ -89,7 +94,7 @@ def build_sample(rows_dir, out_path, split_q=0.75, near_step=2, far_frac=0.02, s
 def cost_matrix(ttf, weight, n_samples=5000, seed=0):
     """C[k, a]: 실제 TTF가 구간 k일 때 행동 a(첫 열은 NaN, 나머지는 ACTION_GRID의 숫자)의 평균 벌점.
 
-    채점식상 0초로 답하는 것과 NaN으로 답하는 것은 벌점이 항상 같다. 동점이면 NaN이 먼저 선택된다.
+    벌점은 최종 점수 (S1 + S2) / 2 기준이다. 동점이면 NaN(첫 열)이 먼저 선택된다.
     """
     rng = np.random.default_rng(seed)
     cls = ttf_to_class(ttf)
@@ -102,7 +107,7 @@ def cost_matrix(ttf, weight, n_samples=5000, seed=0):
         p = weight[members] / weight[members].sum()
         gt = ttf[rng.choice(members, size=min(n_samples, len(members)), p=p)]
         for j, a in enumerate(actions):
-            C[k, j] = phm_subscores(gt, np.full(len(gt), a)).mean()
+            C[k, j] = phm_subscores_final(gt, np.full(len(gt), a)).mean()
     return C, actions
 
 
@@ -155,20 +160,21 @@ def fit(sample_path, n_estimators=300, learning_rate=0.05, seed=0, save_proba=No
     if save_proba:
         # 결정 규칙을 재학습 없이 분석/조정할 수 있도록 검증 확률을 저장한다.
         np.savez(save_proba, tool=val["tool"].to_numpy(), weight=w, gt=gt, actions=actions, **saved)
-    model_sub = phm_subscores(gt, preds)
-    nan_sub = phm_subscores(gt, np.full_like(gt, np.nan))
-    per_tool = pd.DataFrame({
-        "model": file_scores(val["tool"], w, model_sub),
-        "all_nan": file_scores(val["tool"], w, nan_sub),
-    })
-    print(per_tool.round(3).to_string())
+    nan_preds = np.full_like(gt, np.nan)
+    tools = val["tool"]
+    rows = []
+    for name, fn in [("S1", phm_subscores), ("S2", phm_subscores_secondary), ("final", phm_subscores_final)]:
+        model = file_scores(tools, w, fn(gt, preds)).sum()
+        base = file_scores(tools, w, fn(gt, nan_preds)).sum()
+        rows.append((name, model, base))
+        print(f"[score] {name}: model {model:.3f} / all NaN {base:.3f}")
     for i, c in enumerate(TTF_COLS):
-        m = file_scores(val["tool"], w, model_sub[:, [i]]).sum()
-        n = file_scores(val["tool"], w, nan_sub[:, [i]]).sum()
-        print(f"[score] {c}: model {m:.3f} / all NaN {n:.3f}")
-    total, base = per_tool["model"].sum(), per_tool["all_nan"].sum()
-    print(f"[score] 검증 합계(낮을수록 좋음): model {total:.3f} / all NaN {base:.3f} "
-          f"-> 벌점 {1 - total / base:+.1%} 감소")
+        m = file_scores(tools, w, phm_subscores_final(gt[:, [i]], preds[:, [i]])).sum()
+        n = file_scores(tools, w, phm_subscores_final(gt[:, [i]], nan_preds[:, [i]])).sum()
+        print(f"[score] final {c}: model {m:.3f} / all NaN {n:.3f}")
+    _, total, base = rows[-1]
+    print(f"[score] 검증 최종 점수 (S1+S2)/2 (낮을수록 좋음): model {total:.3f} / all NaN {base:.3f} "
+          f"-> 벌점 {1 - total / base:+.2%} 감소")
     return total, base
 
 

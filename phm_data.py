@@ -179,3 +179,31 @@ def phm_subscores(gt, pred):
         [0.0, only_gt_nan, only_pred_nan],
         default=both,
     )
+
+
+def phm_subscores_secondary(gt, pred):
+    """PHM 2018 최종 단계의 2차 점수(S2) 부분 점수 (낮을수록 좋음). 오경보/미탐지를 더 세게 벌한다.
+
+    정답/예측 모두 숫자: 0.1 * (GT - SUB)^2
+    정답만 NaN:         5 / (|SUB| + 3)
+    예측만 NaN:         20 * exp(-1 / (|GT| + 0.1))
+    둘 다 NaN:          0
+    출처: 2018 PHM 학회 Data Challenge 논문들(phmconf 2018 #589, #590, #591)의 채점표.
+    """
+    gt = np.asarray(gt, dtype=float)
+    pred = np.asarray(pred, dtype=float)
+    gt_nan, pred_nan = np.isnan(gt), np.isnan(pred)
+    with np.errstate(invalid="ignore", over="ignore", divide="ignore"):
+        both = 0.1 * (gt - pred) ** 2
+        only_gt_nan = 5.0 / (np.abs(pred) + 3)
+        only_pred_nan = 20 * np.exp(-1.0 / (np.abs(gt) + 0.1))
+    return np.select(
+        [gt_nan & pred_nan, gt_nan, pred_nan],
+        [0.0, only_gt_nan, only_pred_nan],
+        default=both,
+    )
+
+
+def phm_subscores_final(gt, pred):
+    """최종 점수 = (S1 + S2) / 2 의 셀 단위 부분 점수. 파일 평균과 합산이 선형이라 셀 단위로 평균해도 같다."""
+    return (phm_subscores(gt, pred) + phm_subscores_secondary(gt, pred)) / 2

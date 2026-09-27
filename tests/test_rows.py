@@ -13,8 +13,9 @@ def test_ttf_to_class_bins_and_far():
 
 
 def test_decide_answers_nan_when_far_and_number_when_certain():
+    # 최종 점수(S1+S2)/2는 오차를 제곱으로 벌하므로, 정답을 몇 초 이내로 알 때만 숫자로 답해야 한다.
     rng = np.random.default_rng(0)
-    ttf = np.r_[rng.uniform(900, 1500, 1000), np.full(1000, np.nan)]
+    ttf = np.r_[rng.uniform(1195, 1205, 1000), np.full(1000, np.nan)]
     C, actions = cost_matrix(ttf, np.ones(len(ttf)))
 
     far = np.zeros((1, N_CLASSES))
@@ -23,7 +24,16 @@ def test_decide_answers_nan_when_far_and_number_when_certain():
     near[0, ttf_to_class([1200])[0]] = 1
 
     assert np.isnan(decide(far, C, actions)[0])
-    assert 900 <= decide(near, C, actions)[0] <= 1500
+    assert 1180 <= decide(near, C, actions)[0] <= 1220
+
+
+def test_decide_prefers_nan_when_timing_is_uncertain():
+    rng = np.random.default_rng(0)
+    ttf = rng.uniform(900, 1500, 1000)
+    C, actions = cost_matrix(ttf, np.ones(len(ttf)))
+    near = np.zeros((1, N_CLASSES))
+    near[0, ttf_to_class([1200])[0]] = 1
+    assert np.isnan(decide(near, C, actions)[0])
 
 
 def test_row_features_are_causal():

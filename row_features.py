@@ -30,8 +30,31 @@ EVENT_COUNT_ROWS = {"1h": 900, "1d": 21600}
 STOP_GAPS = {"5m": 300, "1h": 3600}  # 장비 정지로 볼 데이터 공백 길이
 
 
-def fit_step_stats(df):
-    """(레시피, 단계)별 핵심 센서의 중앙값과 강건한 산포(IQR 기반)를 구한다. 학습 기간 데이터로만 호출한다."""
+FLOW_CURVE_BINS = 50
+RESID_ROLL_ROWS = {"1m": 15, "5m": 75, "30m": 450}
+
+
+def fit_flow_curve(df):
+    """정상 구간에서 FlowCool 압력 -> 유량 관계를 압력 분위 구간별 중앙값으로 근사한다.
+
+    고장이 생기면 이 관계가 깨진다는 아이디어는 Hitachi 팀 논문(phmconf 2018 #590)에서 가져왔다.
+    반환: (압력 중앙값 배열, 유량 중앙값 배열), 압력 오름차순.
+    """
+    p = df["FLOWCOOLPRESSURE"].to_numpy(dtype=np.float64)
+    q = df["FLOWCOOLFLOWRATE"].to_numpy(dtype=np.float64)
+    ok = np.isfinite(p) & np.isfinite(q)
+    p, q = p[ok], q[ok]
+    edges = np.unique(np.quantile(p, np.linspace(0, 1, FLOW_CURVE_BINS + 1)))
+    bins = np.clip(np.searchsorted(edges, p, side="right") - 1, 0, max(len(edges) - 2, 0))
+    g = pd.DataFrame({"bin": bins, "p": p, "q": q}).groupby("bin").median()
+    return g["p"].to_numpy(), g["q"].to_numpy()
+
+
+def fit_step_stats(df, normal=None):
+    """(레시피, 단계)별 핵심 센서의 중앙값과 강건한 산포(IQR 기반)를 구한다. 학습 기간 데이터로만 호출한다.
+
+    normal(df와 같은 길이의 불리언)을 주면 그 정상 구간으로 압력 -> 유량 곡선도 학습한다.
+    """
     g = df.groupby(STEP_KEYS)[KEY_SENSORS]
     med = g.median()
     iqr = (g.quantile(0.75) - g.quantile(0.25)) / 1.349
@@ -43,6 +66,7 @@ def fit_step_stats(df):
         "scale": scale,
         "global_med": df[KEY_SENSORS].median().to_numpy(),
         "global_scale": np.maximum(global_std, 1e-3),
+        "flow_curve": fit_flow_curve(df if normal is None else df[np.asarray(normal)]),
     }
 
 
@@ -128,6 +152,20 @@ def make_row_features(df, rows=None, step_stats=None):
                 put(f"{c}_z_mean_{name}", r.mean())
                 put(f"{c}_z_min_{name}", r.min())
                 put(f"{c}_z_max_{name}", r.max())
+
+        # 정상 압력 -> 유량 곡선 대비 실제 유량의 잔차
+        centers, medians = step_stats["flow_curve"]
+        resid = pd.Series(
+            df["FLOWCOOLFLOWRATE"].to_numpy(dtype=np.float64)
+            - np.interp(df["FLOWCOOLPRESSURE"].to_numpy(dtype=np.float64), centers, medians),
+            dtype=np.float32,
+        )
+        put("flow_resid", resid)
+        for name, w in RESID_ROLL_ROWS.items():
+            r = resid.rolling(w, min_periods=1)
+            put(f"flow_resid_mean_{name}", r.mean())
+            put(f"flow_resid_min_{name}", r.min())
+            put(f"flow_resid_max_{name}", r.max())
 
         # 단계 기준을 1분 이상 크게 벗어난 이탈 이벤트: 이전 고장의 흔적(같은 고장은 절반이 하루 안에 재발).
         # 단계 전환 순간의 짧은 튐을 거르기 위해 1분 이동 평균으로 판단한다.
