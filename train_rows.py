@@ -120,11 +120,13 @@ def file_scores(tools, weight, subscores):
     return g["s"].sum() / (g["w"].sum() * subscores.shape[1])
 
 
-def fit(sample_path, n_estimators=300, learning_rate=0.05, seed=0):
+def fit(sample_path, n_estimators=300, learning_rate=0.05, seed=0, save_proba=None):
     data = pd.read_parquet(sample_path)
     feature_cols = [c for c in data.columns if c not in META_COLS]
     train, val = data[~data["is_val"]], data[data["is_val"]]
-    print(f"[data] train {len(train)} rows / val {len(val)} rows / {len(feature_cols)} features")
+    print(f"[data] train {len(train)} rows / val {len(val)} rows / {len(feature_cols)} features",
+          flush=True)
+    saved = {}
 
     preds = np.full((len(val), len(TTF_COLS)), np.nan)
     for i, c in enumerate(TTF_COLS):
@@ -139,11 +141,15 @@ def fit(sample_path, n_estimators=300, learning_rate=0.05, seed=0):
         C, actions = cost_matrix(train[c].to_numpy(dtype=float), train["weight"].to_numpy())
         proba = model.predict_proba(val[feature_cols])
         preds[:, i] = decide(proba, C, actions)
+        saved[f"proba_{i}"], saved[f"cost_{i}"] = proba.astype(np.float32), C
         answered = ~np.isnan(preds[:, i])
         print(f"[fit] {c}: {time.time() - start:.0f}s, 숫자로 답한 검증 행 {answered.mean():.3%}", flush=True)
 
     gt = val[TTF_COLS].to_numpy(dtype=float)
     w = val["weight"].to_numpy()
+    if save_proba:
+        # 결정 규칙을 재학습 없이 분석/조정할 수 있도록 검증 확률을 저장한다.
+        np.savez(save_proba, tool=val["tool"].to_numpy(), weight=w, gt=gt, actions=actions, **saved)
     model_sub = phm_subscores(gt, preds)
     nan_sub = phm_subscores(gt, np.full_like(gt, np.nan))
     per_tool = pd.DataFrame({
@@ -174,12 +180,13 @@ def main():
     f.add_argument("--sample", default="data/samples/rows.parquet")
     f.add_argument("--n-estimators", type=int, default=300)
     f.add_argument("--learning-rate", type=float, default=0.05)
+    f.add_argument("--save-proba", default=None, help="검증 확률을 저장할 .npz 경로")
     args = p.parse_args()
 
     if args.cmd == "sample":
         build_sample(args.rows_dir, args.out, args.split_q, args.near_step, args.far_frac)
     else:
-        fit(args.sample, args.n_estimators, args.learning_rate)
+        fit(args.sample, args.n_estimators, args.learning_rate, save_proba=args.save_proba)
 
 
 if __name__ == "__main__":
