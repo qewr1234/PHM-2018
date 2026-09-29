@@ -23,7 +23,7 @@ WARMUP_DAY = 7.0
 DEFAULT_DELAY_H = 1.0
 
 
-POLICIES = ("all", "random", "periodic", "smart")
+POLICIES = ("all", "random", "periodic", "smart", "smart_spread", "hybrid")
 
 
 def simulate(s, mode="vm", delay_h=DEFAULT_DELAY_H, policy="all", budget=1.0, cfg=None, seed=0, static=None):
@@ -31,7 +31,8 @@ def simulate(s, mode="vm", delay_h=DEFAULT_DELAY_H, policy="all", budget=1.0, cf
 
     policy: all(전수 계측) | random(확률 budget) | periodic(조건별 1/budget 장마다 1장) |
             smart(불확실성 = 칼만 예측 표준편차 + 멤버 간 표준편차 가 최근 점수의 상위 budget 분위 이상이면 계측,
-                  실제 계측 비율이 budget 을 따라가도록 분위를 조정 — Han 외 2025 의 분산 기반 동적 표본을 변형)
+                  실제 계측 비율이 budget 을 따라가도록 분위를 조정 — Han 외 2025 의 분산 기반 동적 표본을 변형) |
+            smart_spread(멤버 간 표준편차만) | hybrid(절반은 주기, 절반은 불확실성)
     """
     svc = VMService(s, mode, cfg, static)
     ptime = s.t_end if mode == "vm" else s.t_start
@@ -65,13 +66,19 @@ def simulate(s, mode="vm", delay_h=DEFAULT_DELAY_H, policy="all", budget=1.0, cf
         elif policy == "periodic":
             meas = cnt[r] % max(int(round(1 / budget)), 1) == 0
             cnt[r] += 1
-        elif policy == "smart":
+        elif policy in ("smart", "smart_spread", "hybrid"):
             sd = out["kal_sd"] if np.isfinite(out["kal_sd"]) else 10.0
-            u = sd + (out["spread"] if np.isfinite(out["spread"]) else 0.0)
+            spread = out["spread"] if np.isfinite(out["spread"]) else 0.0
+            u = spread if policy == "smart_spread" else sd + spread
             sh = score_hist[r]
-            meas = u_rand[i] < budget if len(sh) < 20 else u >= np.quantile(sh[-200:], 1 - q_level[r])
+            sub = budget / 2 if policy == "hybrid" else budget
+            meas = u_rand[i] < sub if len(sh) < 20 else u >= np.quantile(sh[-200:], 1 - q_level[r])
             sh.append(u)
-            q_level[r] = float(np.clip(q_level[r] + 0.02 * (budget - meas), 0.01, 0.99))
+            if policy == "hybrid":
+                # 절반은 주기 계측(조건별 2/budget 장마다 1장)으로 바닥을 깔고, 나머지 절반을 불확실성으로 고른다
+                meas = meas or cnt[r] % max(int(round(2 / budget)), 1) == 0
+                cnt[r] += 1
+            q_level[r] = float(np.clip(q_level[r] + 0.02 * (sub - meas), 0.01, 0.99))
         else:
             raise ValueError(policy)
         if meas and np.isfinite(s.y[i]):
@@ -136,10 +143,10 @@ def coverage(rec, period):
 
 def r2r_errors(rec, period, col):
     """연마 전 예측 f 로 연마 시간을 정하면(목표 제거량 / f) 실제 제거량의 상대 오차 = y/f - 1 (Preston: 제거량 ∝ 시간)."""
-    m = period_mask(rec, period)
+    m = period_mask(rec, period) & np.isfinite(rec[col].to_numpy())
     e = rec["y"].to_numpy()[m] / rec[col].to_numpy()[m] - 1
     return {"rms_pct": float(np.sqrt(np.mean(e ** 2)) * 100), "within_2pct": float(np.mean(np.abs(e) <= 0.02)),
-            "within_5pct": float(np.mean(np.abs(e) <= 0.05)), "n": int(m.sum())}
+            "within_5pct": float(np.mean(np.abs(e) <= 0.05)), "n": int(m.sum())}  # 예측이 없는 웨이퍼는 빼고 n 에 표시
 
 
 def replay_blend(s, rec, delay_h, blend_cfg, mode="vm"):

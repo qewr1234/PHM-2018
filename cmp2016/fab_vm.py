@@ -15,7 +15,8 @@
 - History           : 도착·검증된 계측값 (레짐별, 공정 시각 순)
 - history_features  : 예측 시점의 이력 특징 (최근 편차, 지수가중 평균, 추세, 같은 드레서 수명 평균, 상태 차이 등)
 - 예측기            : EWMA(run-to-run 방식), 칼만 동적 선형 모델, 주기 재학습 LightGBM, 온라인 결합(NNLS),
-                      적응형 컨포멀 구간(ACI)
+                      적응형 컨포멀 구간(ACI). OnlineGP 는 시험해 본 선택 멤버(개발 기간에서 이득이 작고 느려 기본 설정에서 뺐다)
+- VMService         : 위 구성 요소를 묶은 서비스 (계측 도착 · 주기 재학습 · 웨이퍼 예측 요청)
 """
 import bisect
 import os
@@ -27,7 +28,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from scipy.optimize import nnls  # noqa: E402
 
-from cmp_data import (CACHE_DIR, EXCLUDE, KEY, TARGET, align_keys, build_table, load_raw_all,  # noqa: E402
+from cmp_data import (CACHE_DIR, EXCLUDE, TARGET, align_keys, build_table, load_raw_all,  # noqa: E402
                       prune_columns, regime, shape_family, shape_features, TS_FAMILIES)
 
 HOUR = 3600.0
@@ -497,6 +498,8 @@ class AdaptiveConformal:
         return float(np.quantile(sc, q))
 
     def update(self, r, err, issued_width):
+        if not np.isfinite(err):  # 예측이 없던 웨이퍼(콜드 스타트)는 점수에 넣지 않는다
+            return
         if np.isfinite(issued_width):
             miss = float(err > issued_width)
             self.a[r] = self.a[r] + self.gamma * (self.alpha - miss)

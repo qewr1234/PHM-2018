@@ -1421,5 +1421,67 @@
   "inv3_75": 11.357,
   "inv3_150": 11.172,
   "inv3_300": 11.482
+ },
+ "sampling_dev": {
+  "devs_hybrid10": {
+   "dev_mse": 27.454,
+   "measured_rate": 0.075
+  },
+  "devs_hybrid20": {
+   "dev_mse": 18.811,
+   "measured_rate": 0.126
+  },
+  "devs_hybrid50": {
+   "dev_mse": 13.69,
+   "measured_rate": 0.288
+  },
+  "devs_periodic10": {
+   "dev_mse": 19.477,
+   "measured_rate": 0.1
+  },
+  "devs_periodic20": {
+   "dev_mse": 14.195,
+   "measured_rate": 0.2
+  },
+  "devs_periodic50": {
+   "dev_mse": 12.062,
+   "measured_rate": 0.5
+  },
+  "devs_random10": {
+   "dev_mse": 25.011,
+   "measured_rate": 0.109
+  },
+  "devs_random20": {
+   "dev_mse": 15.357,
+   "measured_rate": 0.21
+  },
+  "devs_random50": {
+   "dev_mse": 13.124,
+   "measured_rate": 0.509
+  },
+  "devs_smart10": {
+   "dev_mse": 37.853,
+   "measured_rate": 0.1
+  },
+  "devs_smart20": {
+   "dev_mse": 16.887,
+   "measured_rate": 0.202
+  },
+  "devs_smart50": {
+   "dev_mse": 12.343,
+   "measured_rate": 0.506
+  },
+  "devs_smart_spread10": {
+   "dev_mse": 94.623,
+   "measured_rate": 0.102
+  },
+  "devs_smart_spread20": {
+   "dev_mse": 23.183,
+   "measured_rate": 0.199
+  },
+  "devs_smart_spread50": {
+   "dev_mse": 14.884,
+   "measured_rate": 0.5
+  }
  }
 }

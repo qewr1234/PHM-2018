@@ -2,7 +2,8 @@
 
 사용 예:
     python cmp2016/fab_run.py --stage dev     # 개발 기간(7~30일) 채점으로 하이퍼파라미터 비교 → cmp2016/fab_dev.json
-    python cmp2016/fab_run.py --stage main    # 시나리오 22개 (CPU 4개 병렬, 약 20분) → cmp2016/fab_results.json
+    python cmp2016/fab_run.py --stage sampling_dev  # 계측 표본 정책 비교(개발 기간) → fab_dev.json 에 추가
+    python cmp2016/fab_run.py --stage main    # 시나리오 22개 (CPU 4개 병렬, 약 10분) → cmp2016/fab_results.json
 
 시나리오
 - 계측 지연: 0, 0.1, 0.25, 1, 4, 12 시간 (전수 계측)                  → vm·forecast
@@ -27,7 +28,7 @@ import pandas as pd  # noqa: E402
 from cmp_data import CACHE_DIR, build_table  # noqa: E402
 from fab_sim import (DEFAULT_DELAY_H, DEV_END_DAY, coverage, period_mask, r2r_errors, replay_blend,  # noqa: E402
                      score, simulate)
-from fab_vm import REGIMES, WaferStream  # noqa: E402
+from fab_vm import WaferStream  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 REC_DIR = CACHE_DIR / "fab"
@@ -133,7 +134,20 @@ def stage_dev(args):
 
 
 # ==============================================================================================
-def summarize(rec, fixed_mu=None):
+def stage_sampling_dev(args):
+    """계측 표본 정책을 개발 기간 채점으로 비교해 fab_dev.json 에 덧붙인다 (지연 1시간, vm)."""
+    jobs = [(f"devs_{pol}{int(b * 100)}", "vm", DEFAULT_DELAY_H, pol, b, FINAL_CFG)
+            for b in (0.5, 0.2, 0.1) for pol in ("random", "periodic", "smart", "smart_spread", "hybrid")]
+    recs = run_jobs(jobs, args.procs)
+    f = Path(args.dev_out)
+    res = json.loads(f.read_text()) if f.exists() else {}
+    res["sampling_dev"] = {k: {"dev_mse": r3(score(v, "dev")["mse"]), "measured_rate": r3(float(v["measured"].mean()))}
+                           for k, v in sorted(recs.items())}
+    f.write_text(json.dumps(res, ensure_ascii=False, indent=1))
+    print(json.dumps(res["sampling_dev"], indent=1))
+
+
+def summarize(rec):
     out = {"deploy": {k: r3(v) for k, v in score(rec, "deploy").items()},
            "members_deploy": members(rec, "deploy"),
            "coverage_deploy": {k: r3(v) for k, v in coverage(rec, "deploy").items()},
@@ -206,13 +220,13 @@ def stage_main(args):
 
 def main():
     p = argparse.ArgumentParser(description="FAB 적용 가정 실시간 VM 시뮬레이션")
-    p.add_argument("--stage", choices=["dev", "main"], default="main")
+    p.add_argument("--stage", choices=["dev", "sampling_dev", "main"], default="main")
     p.add_argument("--out", default=str(HERE / "fab_results.json"))
     p.add_argument("--dev-out", default=str(HERE / "fab_dev.json"))
     p.add_argument("--procs", type=int, default=4)
     args = p.parse_args()
     t0 = time.time()
-    (stage_dev if args.stage == "dev" else stage_main)(args)
+    {"dev": stage_dev, "sampling_dev": stage_sampling_dev, "main": stage_main}[args.stage](args)
     print(f"[time] {time.time() - t0:.0f}s")
 
 
