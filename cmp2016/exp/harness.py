@@ -24,8 +24,36 @@ from sklearn.model_selection import KFold
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
+import lightgbm as lgb  # noqa: E402
+from sklearn.ensemble import ExtraTreesRegressor  # noqa: E402
+from sklearn.impute import SimpleImputer  # noqa: E402
+from sklearn.linear_model import RidgeCV  # noqa: E402
+from sklearn.pipeline import make_pipeline  # noqa: E402
+from sklearn.preprocessing import StandardScaler  # noqa: E402
+
 from cmp_data import KEY, PROCESS_COLS, RAW, TARGET, build_table, load_labels, load_split, regime  # noqa: E402
-from run_cmp import COMPACT_PREFIX, EXCLUDE, MODELS, features, mse  # noqa: E402
+from run_cmp import COMPACT_PREFIX, EXCLUDE, mse  # noqa: E402
+from run_cmp import features as _features  # noqa: E402
+
+# 기준선(탐색 시작 시점의 run_cmp.py) 4 멤버. run_cmp.py 는 최종 멤버(cmp_models)로 바뀌었으므로 여기서 그대로 보존한다.
+MODELS = {
+    "lgb": (lambda: lgb.LGBMRegressor(n_estimators=1500, learning_rate=0.02, num_leaves=15, min_child_samples=10,
+                                      subsample=0.8, subsample_freq=1, colsample_bytree=0.5, reg_lambda=1.0,
+                                      random_state=0, verbose=-1), "all"),
+    "lgb_small": (lambda: lgb.LGBMRegressor(n_estimators=2000, learning_rate=0.01, num_leaves=7, min_child_samples=20,
+                                            subsample=0.8, subsample_freq=1, colsample_bytree=0.7, reg_lambda=5.0,
+                                            random_state=1, verbose=-1), "compact"),
+    "extra_trees": (lambda: ExtraTreesRegressor(n_estimators=500, min_samples_leaf=3, max_features=0.5,
+                                                n_jobs=-1, random_state=0), "compact"),
+    "ridge": (lambda: make_pipeline(SimpleImputer(), StandardScaler(), RidgeCV(alphas=np.logspace(-2, 3, 20))),
+              "compact"),
+}
+
+
+def features(table, ref_mask):
+    """기준 특징 112 컬럼 (기본 + 이웃 + 순서). run_cmp.features 는 이제 NB_ 확장까지 붙이므로 여기서 잘라낸다."""
+    X = _features(table, ref_mask)
+    return X[[c for c in X.columns if not c.startswith(("NB_E_", "NB_D_", "NB_O_"))]]
 
 CACHE = RAW.parent
 N_FOLDS, FOLD_SEED = 5, 0

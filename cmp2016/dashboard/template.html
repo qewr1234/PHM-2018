@@ -167,7 +167,8 @@
       <li>웨이퍼·스테이지 하나를 예측 단위로 잡고, 한 기록 안에서 거치는 챔버 3곳의 공정 변수를 단계별로 요약했습니다.</li>
       <li>소모품 6종의 사용량, 압력 × 회전 속도의 시간 적분(Preston 항), 가공 시간을 특징으로 만들었습니다.</li>
       <li>시간·소모품 상태가 가까운 학습 웨이퍼의 연마량, 국소 추세, 처리 순서상 앞뒤 웨이퍼(같은 챔버 그룹의 다른 스테이지 포함)의 연마량 편차를 특징으로 넣었습니다. 학습 행은 자기 자신을 빼고, 교차검증에서는 학습 폴드 안에서만 찾아 정답이 새지 않게 했습니다.</li>
-      <li>연마 조건(챔버 그룹 + 스테이지)마다 LightGBM 2종, ExtraTrees, 릿지를 학습하고, 학습 데이터 교차검증 예측으로 정한 가중치로 섞었습니다. 모델 선택은 교차검증 점수로만 했고, 테스트·검증 정답은 결과 보고에만 썼습니다.</li><li>해석용으로 소모품 상태에 따라 Preston 계수가 변하는 릿지 회귀 모델을 따로 맞췄습니다.</li>
+      <li>원시 1 Hz 센서 시퀀스의 모양(램프업·안정화 시간, 정체 구간 드리프트, 수준 변화 횟수, 채널 간 지연)을 정답 없이 특징으로 만들고, 직전·직후 웨이퍼 대비 공정 상태 변화량과 과거·미래 웨이퍼 편차의 지수 가중 평균을 더했습니다.</li>
+      <li>멤버 3종 — 연마 조건(챔버 그룹 + 스테이지)별 LightGBM, 시퀀스 CNN + 표 특징 융합 신경망, 시간·소모품 상태 가우시안 프로세스 — 의 교차검증 예측을 연마 조건별 학습 범위로 자른 뒤 연마 조건별 비음수 가중치로 섞었습니다. 멤버·가중치 선택은 nested 교차검증으로만 했고, 테스트·검증 정답은 결과 보고에만 썼습니다.</li><li>해석용으로 소모품 상태에 따라 Preston 계수가 변하는 릿지 회귀 모델을 따로 맞췄습니다.</li>
       <li>대회가 공개한 테스트·검증 정답으로 평가했습니다. 학습 데이터의 연마량 수천 단위 값 4개는 측정 오류로 보고 뺐습니다.</li>
     </ul>
   </section>
@@ -294,7 +295,7 @@
   wearChart("chart-pad", "pad", "패드(연마 테이블) 사용량");
 
   // 모델별 MSE
-  const MODELS = [["regime_mean", "챔버·스테이지 평균"], ["physics", "물리 모델 (소모품 → Kp)"], ["neighbors_time3", "가까운 웨이퍼 3장 평균"], ["lightgbm", "LightGBM 단일"], ["ensemble", "앙상블 (최종)"]];
+  const MODELS = [["regime_mean", "챔버·스테이지 평균"], ["physics", "물리 모델 (소모품 → Kp)"], ["neighbors_time3", "가까운 웨이퍼 3장 평균"], ["lightgbm", "LightGBM 단일"], ["seqdl", "시퀀스 융합 신경망 단일"], ["gp_state", "가우시안 프로세스 단일"], ["ensemble", "앙상블 (최종)"]].filter(([k]) => S.test[k]);
   document.getElementById("perf-desc").textContent =
     `대회가 공개한 정답으로 채점했습니다. 최종 모델은 테스트 MSE ${f2(S.test.ensemble.mse)}, 검증 MSE ${f2(S.val.ensemble.mse)}입니다. 소모품 상태만 쓰는 물리 모델은 평균 예측보다 나아지지만 한계가 뚜렷하고, 시간상 가까운 웨이퍼의 연마량이 가장 강한 단서였습니다.`;
   legend("legend-mse", [{ label: "테스트", color: "var(--s1)" }, { label: "검증", color: "var(--s2)" }]);
@@ -325,7 +326,7 @@
     const t = document.getElementById("bench-table");
     t.innerHTML = `<thead><tr><th>출처</th><th class="n">테스트 MSE</th><th class="n">검증 MSE</th><th>방법</th></tr></thead>`;
     const tb = h("tbody", {}, t);
-    const rows = [{ source: "이 프로젝트", test: S.test.ensemble.mse, val: S.val.ensemble.mse, method: "레짐별 LightGBM·ExtraTrees·릿지 앙상블 + 이웃·순서·물리 특징", ours: true }].concat(B);
+    const rows = [{ source: "이 프로젝트", test: S.test.ensemble.mse, val: S.val.ensemble.mse, method: "레짐별 LightGBM + 시퀀스 융합 신경망 + 가우시안 프로세스, 레짐별 클리핑 NNLS 앙상블; 이웃·순서·시퀀스 모양 특징", ours: true }].concat(B);
     rows.sort((a, b) => ((a.val ?? a.test ?? 1e9) - (b.val ?? b.test ?? 1e9)));
     rows.forEach(r => h("tr", { class: r.ours ? "ours" : "" }, tb,
       `<td>${r.url ? `<a href="${r.url}">${r.source}</a>` : r.source}</td><td class="n">${r.test != null ? f2(r.test) : "-"}</td><td class="n">${r.val != null ? f2(r.val) : "-"}</td><td>${r.method || ""}</td>`));
