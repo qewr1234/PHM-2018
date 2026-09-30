@@ -15,7 +15,8 @@
 - History           : 도착·검증된 계측값 (레짐별, 공정 시각 순)
 - history_features  : 예측 시점의 이력 특징 (최근 편차, 지수가중 평균, 추세, 같은 드레서 수명 평균, 상태 차이 등)
 - 예측기            : EWMA(run-to-run 방식), 칼만 동적 선형 모델, 주기 재학습 LightGBM, 온라인 결합(NNLS),
-                      적응형 컨포멀 구간(ACI). OnlineGP 는 시험해 본 선택 멤버(개발 기간에서 이득이 작고 느려 기본 설정에서 뺐다)
+                      적응형 컨포멀 구간(ACI). OnlineGP 는 시험해 본 선택 멤버(개발 기간에서 이득이 작고 느려 기본 설정에서 뺐다).
+                      OnlineTFM 은 선택 멤버: 칼만 잔차를 표 기반 파운데이션 모델(TabICLv2)로 보정 (cfg 'tfm', 느리다)
 - VMService         : 위 구성 요소를 묶은 서비스 (계측 도착 · 주기 재학습 · 웨이퍼 예측 요청)
 """
 import bisect
@@ -30,6 +31,9 @@ from scipy.optimize import nnls  # noqa: E402
 
 from cmp_data import (CACHE_DIR, EXCLUDE, TARGET, align_keys, build_table, load_raw_all,  # noqa: E402
                       prune_columns, regime, shape_family, shape_features, TS_FAMILIES)
+
+# 파운데이션 모델 가중치 캐시 (git 에 넣지 않는다). 여기 받아 둔 가중치만 써서 오프라인으로 재현한다
+TFM_CACHE = CACHE_DIR / "tfm_cache"
 
 HOUR = 3600.0
 REGIMES = ("1A", "4A", "4B")
@@ -342,13 +346,18 @@ class OnlineGBM:
         mu = X["H_mu"].to_numpy(dtype=float)
         return np.where(np.isfinite(k), k, mu)
 
-    def _fit_one(self, X, y):
+    def _screen(self, X, y):
+        """학습 행에서만 고르는 열: 값이 있는 열 중 LightGBM gain 상위 topk."""
         X = X.loc[:, X.notna().any()]
         cols = list(X.columns)
         if self.topk and len(cols) > self.topk:
             scr = lgb.LGBMRegressor(**{**self.params, "n_estimators": 120, "learning_rate": 0.1}).fit(X, y)
             g = pd.Series(scr.booster_.feature_importance("gain"), index=cols)
             cols = list(g.sort_values(ascending=False).index[: self.topk])
+        return cols
+
+    def _fit_one(self, X, y):
+        cols = self._screen(X, y)
         return cols, lgb.LGBMRegressor(**self.params).fit(X[cols], y)
 
     def maybe_fit(self, s, H, rows, p):
@@ -378,6 +387,59 @@ class OnlineGBM:
         cols, model = m
         X = feats_row.reindex(columns=cols)
         return float(model.predict(X)[0] + self._offset(feats_row)[0]), np.nan
+
+
+TABICL_CKPT = "tabicl-regressor-v2-20260212.ckpt"
+
+
+def tfm_regressor(n_estimators=4, kv_cache=True, seed=0, threads=1):
+    """TabICLv2 회귀기 (tabicl 2.2, BSD-3). 가중치는 TFM_CACHE 의 HuggingFace 캐시에서만 읽는다 (내려받지 않음)."""
+    os.environ.setdefault("HF_HOME", str(TFM_CACHE / "hf"))
+    import torch
+    from tabicl import TabICLRegressor
+    torch.set_num_threads(threads)
+    found = sorted((TFM_CACHE / "hf" / "hub" / "models--jingang--TabICL" / "snapshots").glob(f"*/{TABICL_CKPT}"))
+    if not found:
+        raise FileNotFoundError(f"TabICL 가중치가 없다: huggingface-cli download jingang/TabICL {TABICL_CKPT} "
+                                f"--cache-dir {TFM_CACHE / 'hf' / 'hub'}")
+    return TabICLRegressor(n_estimators=n_estimators, kv_cache=kv_cache, device="cpu", random_state=seed, n_jobs=threads,
+                           checkpoint_version=TABICL_CKPT, model_path=found[-1], allow_auto_download=False)
+
+
+class OnlineTFM(OnlineGBM):
+    """칼만 잔차를 표 기반 파운데이션 모델로 보정하는 멤버 (선택, cfg 'tfm').
+
+    OnlineGBM(residual=True) 과 학습 행·특징·재학습 시각이 같고, 트리 대신 TabICLv2 를 쓴다. 가중치는 사전학습 그대로이고
+    '재학습' 은 도착한 계측 행을 문맥으로 다시 넣는 것뿐이다 (kv_cache: 학습 행의 계산을 재학습 때 한 번 해 두고
+    웨이퍼마다 한 행만 추론, 약 0.1초). 열은 그 재학습의 학습 행에서만 LightGBM gain 상위 topk 로 고른다.
+    목표 = y - M_kalman (칼만 예측이 없으면 H_mu), 예측 = 모델 출력 + 같은 오프셋. 오프셋이 없는 초기 행은 학습에서 뺀다.
+    """
+
+    name = "tfm"
+
+    def __init__(self, retrain_hours=24.0, min_rows=60, topk=100, n_estimators=4, kv_cache=True, window_days=None,
+                 per_regime=True, threads=1, seed=0):
+        super().__init__(retrain_hours=retrain_hours, min_rows=min_rows, topk=topk, window_days=window_days,
+                         per_regime=per_regime, residual=True, n_jobs=1, seed=seed)
+        self.tfm = dict(n_estimators=n_estimators, kv_cache=kv_cache, seed=seed, threads=threads)
+
+    def _fit_one(self, X, y):
+        y = np.asarray(y, float)
+        ok = np.isfinite(y)
+        X, y = X.loc[ok], y[ok]
+        cols = self._screen(X, y)
+        m = tfm_regressor(**self.tfm)
+        m.fit(X[cols].to_numpy(np.float32), y.astype(np.float32))
+        return cols, m
+
+    def predict(self, s, i, p, feats_row):
+        m = self.models.get(s.reg[i])
+        if m is None:
+            return np.nan, np.nan
+        cols, model = m
+        X = feats_row.reindex(columns=cols).to_numpy(np.float32)
+        v = float(np.asarray(model.predict(X)).reshape(-1)[0])
+        return v + float(self._offset(feats_row)[0]), np.nan
 
 
 class OnlineGP:
@@ -520,6 +582,8 @@ def make_members(mode, cfg):
         m.append(OnlineGP(mode=mode, **(cfg["gp"] if isinstance(cfg["gp"], dict) else {})))
     if cfg.get("gbm") is not False:
         m.append(OnlineGBM(**cfg.get("gbm", {})))
+    if cfg.get("tfm"):
+        m.append(OnlineTFM(**(cfg["tfm"] if isinstance(cfg["tfm"], dict) else {})))
     return m
 
 
@@ -527,7 +591,7 @@ class VMService:
     """온라인 VM 서비스.
 
     on_metrology(j)  : 계측값 도착 (검증 → 이력·멤버·결합 가중치·컨포멀 갱신). 받아들였으면 True.
-    maybe_retrain(p) : 재학습 시각이면 LightGBM 을 다시 학습 (야간 배치 같은 주기 작업).
+    maybe_retrain(p) : 재학습 시각이면 LightGBM(과 TFM 멤버)을 다시 학습 (야간 배치 같은 주기 작업).
     on_wafer(i, p)   : 웨이퍼 i 의 예측 요청 (vm: 연마 직후, forecast: 연마 직전). 결과 dict:
                        pred, half_width(90% 구간), members, kal_sd, age_h, flags(no_active/stale/disagree/cold)
     웨이퍼는 스트림 행 번호 i 로 가리킨다 (실제 연동에서는 WAFER_ID·STAGE 로 특징을 조회하는 부분만 바뀐다).
@@ -539,13 +603,15 @@ class VMService:
         self.members = make_members(mode, cfg)
         self.names = [m.name for m in self.members]
         self.gbm = next((m for m in self.members if m.name == "gbm"), None)
+        self.tfm = next((m for m in self.members if m.name == "tfm"), None)
+        self.trained = [m for m in self.members if isinstance(m, OnlineGBM)]  # 이력 특징 행으로 주기 학습하는 멤버
         self.blend = OnlineBlend(self.names, **cfg.get("blend", {}))
         self.aci = AdaptiveConformal(**cfg.get("aci", {}))
         self.H = History(s)
         for m in self.members:
             if hasattr(m, "bind"):
                 m.bind(self.H)
-        self.static = static if static is not None or self.gbm is None else s.static_matrix(mode)
+        self.static = static if static is not None or not self.trained else s.static_matrix(mode)
         self.hist_rows = {}
         self.P = np.full((s.n, len(self.members)), np.nan)
         self.pred = np.full(s.n, np.nan)
@@ -570,20 +636,23 @@ class VMService:
         return True
 
     def maybe_retrain(self, p):
-        if self.gbm is None or p < self.gbm.next_fit:
+        due = [m for m in self.trained if p >= m.next_fit]
+        if not due:
             return
         ids = [j for r in REGIMES for j in self.H.idx[r]]
         if not ids:
             return
         hr = pd.DataFrame.from_dict({j: self.hist_rows[j] for j in ids}, orient="index")
-        self.gbm.maybe_fit(self.s, self.H, self.static.loc[ids].join(hr), p)
+        rows = self.static.loc[ids].join(hr)
+        for m in due:
+            m.maybe_fit(self.s, self.H, rows, p)
 
     def on_wafer(self, i, p):
         s, r = self.s, self.s.reg[i]
         feats = history_features(s, self.H, i, p, self.mode)
         kal_sd = np.nan
         for k, m in enumerate(self.members):
-            if m.name == "gbm":
+            if m in self.trained:
                 continue
             v, var = m.predict(s, i, p, feats)
             self.P[i, k] = v
@@ -591,10 +660,11 @@ class VMService:
             if m.name == "kalman":
                 kal_sd = np.sqrt(var) if np.isfinite(var) else np.nan
                 feats["M_kalman_sd"] = kal_sd
-        if self.gbm is not None:
+        if self.trained:
             self.hist_rows[i] = feats
             row = self.static.loc[[i]].join(pd.DataFrame([feats], index=[i]))
-            self.P[i, self.names.index("gbm")] = self.gbm.predict(s, i, p, row)[0]
+            for m in self.trained:
+                self.P[i, self.names.index(m.name)] = m.predict(s, i, p, row)[0]
         _, yy, _ = self.H.arrays(r)
         lo, hi = (yy.min(), yy.max()) if len(yy) else (np.nan, np.nan)
         self.pred[i] = self.blend.combine(r, self.P[i], lo, hi)

@@ -1222,5 +1222,347 @@
     "n": 1582
    }
   }
+ },
+ "config_tfm": {
+  "ewma": {
+   "lam": 0.5
+  },
+  "kalman": {
+   "q_level": 2.0,
+   "q_beta": 0.0,
+   "r_meas": 8.0,
+   "reset_var": 25.0
+  },
+  "gbm": {
+   "retrain_hours": 24.0,
+   "topk": 120,
+   "n_estimators": 400,
+   "learning_rate": 0.04
+  },
+  "blend": {
+   "window": 150,
+   "method": "nnls"
+  },
+  "aci": {
+   "alpha": 0.1,
+   "gamma": 0.005
+  },
+  "tfm": {
+   "retrain_hours": 24.0,
+   "topk": 100,
+   "n_estimators": 4,
+   "kv_cache": true,
+   "threads": 1
+  }
+ },
+ "scenarios_tfm": {
+  "forecast_delay1": {
+   "deploy": {
+    "mse": 15.137,
+    "n": 1582,
+    "n_nan": 0,
+    "mse_1A": 10.475,
+    "mse_4A": 12.578,
+    "mse_4B": 19.247
+   },
+   "members_deploy": {
+    "ewma": 16.062,
+    "kalman": 16.242,
+    "gbm": 19.545,
+    "tfm": 15.579
+   },
+   "coverage_deploy": {
+    "coverage": 0.891,
+    "mean_half_width": 6.164,
+    "n": 1582
+   },
+   "measured_rate_deploy": 1.0,
+   "latency_ms": 89.214,
+   "gbm_fit_s": 0.855,
+   "gbm_fits": 59,
+   "weights_end": {
+    "1A": {
+     "ewma": 0.683,
+     "kalman": 0.0,
+     "gbm": 0.317,
+     "tfm": 0.0
+    },
+    "4A": {
+     "ewma": 0.0,
+     "kalman": 0.541,
+     "gbm": 0.458,
+     "tfm": 0.0
+    },
+    "4B": {
+     "ewma": 0.176,
+     "kalman": 0.003,
+     "gbm": 0.0,
+     "tfm": 0.821
+    }
+   },
+   "seconds": 1766.1,
+   "tfm_fit_s": 24.761,
+   "tfm_fits": 59,
+   "test_deploy": 15.878,
+   "test_after_warmup": 15.164,
+   "val_deploy": 14.97,
+   "val_after_warmup": 14.025
+  },
+  "vm_delay0": {
+   "deploy": {
+    "mse": 8.634,
+    "n": 1582,
+    "n_nan": 0,
+    "mse_1A": 8.783,
+    "mse_4A": 7.261,
+    "mse_4B": 9.849
+   },
+   "members_deploy": {
+    "ewma": 11.519,
+    "kalman": 11.632,
+    "gbm": 10.671,
+    "tfm": 8.689
+   },
+   "coverage_deploy": {
+    "coverage": 0.895,
+    "mean_half_width": 4.802,
+    "n": 1582
+   },
+   "measured_rate_deploy": 1.0,
+   "latency_ms": 114.007,
+   "gbm_fit_s": 3.77,
+   "gbm_fits": 60,
+   "weights_end": {
+    "1A": {
+     "ewma": 0.368,
+     "kalman": 0.263,
+     "gbm": 0.0,
+     "tfm": 0.37
+    },
+    "4A": {
+     "ewma": 0.0,
+     "kalman": 0.0,
+     "gbm": 0.01,
+     "tfm": 0.99
+    },
+    "4B": {
+     "ewma": 0.0,
+     "kalman": 0.0,
+     "gbm": 0.497,
+     "tfm": 0.503
+    }
+   },
+   "seconds": 3867.0,
+   "tfm_fit_s": 55.252,
+   "tfm_fits": 60,
+   "test_deploy": 10.235,
+   "test_after_warmup": 9.745,
+   "val_deploy": 8.112,
+   "val_after_warmup": 7.8
+  },
+  "vm_delay1": {
+   "deploy": {
+    "mse": 12.306,
+    "n": 1582,
+    "n_nan": 0,
+    "mse_1A": 10.545,
+    "mse_4A": 10.498,
+    "mse_4B": 14.639
+   },
+   "members_deploy": {
+    "ewma": 15.835,
+    "kalman": 16.187,
+    "gbm": 15.226,
+    "tfm": 12.455
+   },
+   "coverage_deploy": {
+    "coverage": 0.895,
+    "mean_half_width": 5.624,
+    "n": 1582
+   },
+   "measured_rate_deploy": 1.0,
+   "latency_ms": 104.288,
+   "gbm_fit_s": 3.62,
+   "gbm_fits": 59,
+   "weights_end": {
+    "1A": {
+     "ewma": 0.789,
+     "kalman": 0.0,
+     "gbm": 0.211,
+     "tfm": 0.0
+    },
+    "4A": {
+     "ewma": 0.0,
+     "kalman": 0.0,
+     "gbm": 0.219,
+     "tfm": 0.781
+    },
+    "4B": {
+     "ewma": 0.061,
+     "kalman": 0.0,
+     "gbm": 0.164,
+     "tfm": 0.775
+    }
+   },
+   "seconds": 3466.0,
+   "tfm_fit_s": 50.082,
+   "tfm_fits": 59,
+   "test_deploy": 12.927,
+   "test_after_warmup": 12.341,
+   "val_deploy": 12.07,
+   "val_after_warmup": 11.679
+  },
+  "vm_delay4": {
+   "deploy": {
+    "mse": 16.788,
+    "n": 1582,
+    "n_nan": 0,
+    "mse_1A": 13.78,
+    "mse_4A": 17.627,
+    "mse_4B": 17.135
+   },
+   "members_deploy": {
+    "ewma": 22.913,
+    "kalman": 23.135,
+    "gbm": 19.195,
+    "tfm": 17.261
+   },
+   "coverage_deploy": {
+    "coverage": 0.887,
+    "mean_half_width": 6.531,
+    "n": 1582
+   },
+   "measured_rate_deploy": 1.0,
+   "latency_ms": 114.395,
+   "gbm_fit_s": 3.806,
+   "gbm_fits": 59,
+   "weights_end": {
+    "1A": {
+     "ewma": 0.693,
+     "kalman": 0.0,
+     "gbm": 0.307,
+     "tfm": 0.0
+    },
+    "4A": {
+     "ewma": 0.0,
+     "kalman": 0.116,
+     "gbm": 0.816,
+     "tfm": 0.068
+    },
+    "4B": {
+     "ewma": 0.0,
+     "kalman": 0.0,
+     "gbm": 0.407,
+     "tfm": 0.593
+    }
+   },
+   "seconds": 3811.6,
+   "tfm_fit_s": 55.267,
+   "tfm_fits": 59,
+   "test_deploy": 16.741,
+   "test_after_warmup": 15.459,
+   "val_deploy": 16.851,
+   "val_after_warmup": 15.357
+  },
+  "vm_periodic20": {
+   "deploy": {
+    "mse": 15.34,
+    "n": 1582,
+    "n_nan": 0,
+    "mse_1A": 11.722,
+    "mse_4A": 14.365,
+    "mse_4B": 17.595
+   },
+   "members_deploy": {
+    "ewma": 19.638,
+    "kalman": 20.139,
+    "gbm": 18.139,
+    "tfm": 17.102
+   },
+   "coverage_deploy": {
+    "coverage": 0.889,
+    "mean_half_width": 6.305,
+    "n": 1582
+   },
+   "measured_rate_deploy": 0.2,
+   "latency_ms": 78.899,
+   "gbm_fit_s": 0.747,
+   "gbm_fits": 59,
+   "weights_end": {
+    "1A": {
+     "ewma": 0.338,
+     "kalman": 0.125,
+     "gbm": 0.0,
+     "tfm": 0.538
+    },
+    "4A": {
+     "ewma": 0.321,
+     "kalman": 0.0,
+     "gbm": 0.355,
+     "tfm": 0.324
+    },
+    "4B": {
+     "ewma": 0.105,
+     "kalman": 0.0,
+     "gbm": 0.485,
+     "tfm": 0.409
+    }
+   },
+   "seconds": 950.7,
+   "tfm_fit_s": 11.566,
+   "tfm_fits": 59,
+   "deploy_unmeasured": {
+    "mse": 15.146,
+    "n": 1266,
+    "n_nan": 0,
+    "mse_1A": 10.781,
+    "mse_4A": 14.32,
+    "mse_4B": 17.546
+   },
+   "test_deploy": 15.52,
+   "test_after_warmup": 15.354,
+   "val_deploy": 14.928,
+   "val_after_warmup": 14.338
+  }
+ },
+ "r2r_tfm": {
+  "forecast_delay1": {
+   "p_fixed": {
+    "rms_pct": 14.578,
+    "within_2pct": 0.115,
+    "within_5pct": 0.245,
+    "n": 1582
+   },
+   "p_ewma": {
+    "rms_pct": 4.821,
+    "within_2pct": 0.394,
+    "within_5pct": 0.741,
+    "n": 1582
+   },
+   "p_kalman": {
+    "rms_pct": 4.822,
+    "within_2pct": 0.375,
+    "within_5pct": 0.735,
+    "n": 1582
+   },
+   "p_gbm": {
+    "rms_pct": 5.363,
+    "within_2pct": 0.343,
+    "within_5pct": 0.678,
+    "n": 1582
+   },
+   "p_tfm": {
+    "rms_pct": 4.681,
+    "within_2pct": 0.401,
+    "within_5pct": 0.743,
+    "n": 1582
+   },
+   "pred": {
+    "rms_pct": 4.66,
+    "within_2pct": 0.415,
+    "within_5pct": 0.753,
+    "n": 1582
+   }
+  }
  }
 }

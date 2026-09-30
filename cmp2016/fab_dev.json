@@ -1483,5 +1483,55 @@
    "dev_mse": 14.884,
    "measured_rate": 0.5
   }
+ },
+ "tfm_dev": {
+  "period": "day 7-30 (warm-up 7 days excluded)",
+  "mode": "vm",
+  "delay_h": 1.0,
+  "policy": "all",
+  "tfm": {
+   "retrain_hours": 24.0,
+   "topk": 100,
+   "n_estimators": 4,
+   "kv_cache": true,
+   "threads": 1
+  },
+  "without_tfm": {
+   "blend": {
+    "mse": 11.015,
+    "n": 874,
+    "n_nan": 0,
+    "mse_1A": 9.632,
+    "mse_4A": 10.924,
+    "mse_4B": 11.819
+   },
+   "members": {
+    "ewma": 13.802,
+    "kalman": 13.368,
+    "gbm": 12.726
+   },
+   "latency_ms": 4.9,
+   "seconds": 228.8
+  },
+  "with_tfm": {
+   "blend": {
+    "mse": 10.81,
+    "n": 874,
+    "n_nan": 0,
+    "mse_1A": 9.957,
+    "mse_4A": 10.971,
+    "mse_4B": 11.075
+   },
+   "members": {
+    "ewma": 13.802,
+    "kalman": 13.368,
+    "gbm": 12.726,
+    "tfm": 12.311
+   },
+   "latency_ms": 104.288,
+   "seconds": 3466.0,
+   "tfm_fit_s": 50.082,
+   "tfm_fits": 59
+  }
  }
 }

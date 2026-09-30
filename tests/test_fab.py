@@ -4,13 +4,16 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cmp2016"))
+import fab_vm  # noqa: E402
 from cmp_data import TARGET, USAGE_COLS  # noqa: E402
 from fab_sim import simulate  # noqa: E402
 from fab_vm import DELTA_COLS, History, WaferStream  # noqa: E402
 
 SMALL_GBM = {"gbm": {"min_rows": 15, "n_estimators": 20, "topk": None, "retrain_hours": 6.0}}
+SMALL_TFM = {**SMALL_GBM, "tfm": {"min_rows": 15, "topk": 8, "retrain_hours": 6.0}}
 
 
 def make_table(n=240, seed=0):
@@ -35,20 +38,36 @@ def make_table(n=240, seed=0):
     return t
 
 
-def test_predictions_do_not_see_future_labels():
+def _leak_check(cfg, cols=("pred",)):
     t = make_table()
     s1 = WaferStream(t, use_ts=False)
-    r1 = simulate(s1, mode="vm", delay_h=0.5, cfg=SMALL_GBM)
+    r1 = simulate(s1, mode="vm", delay_h=0.5, cfg=cfg)
     cutoff = np.quantile(s1.t_end, 0.5)
     t2 = t.copy()
     later = (t2["T_START"] + t2["DURATION"]) >= cutoff
     t2.loc[later, TARGET] += 25.0  # 컷오프 이후 연마된 웨이퍼의 정답만 바꾼다
     s2 = WaferStream(t2, use_ts=False)
-    r2 = simulate(s2, mode="vm", delay_h=0.5, cfg=SMALL_GBM)
+    r2 = simulate(s2, mode="vm", delay_h=0.5, cfg=cfg)
     before = s1.t_end < cutoff  # 이 웨이퍼들의 예측 시각에는 바뀐 정답이 아직 도착하지 않았다
-    a, b = r1["pred"].to_numpy()[before], r2["pred"].to_numpy()[before]
-    assert np.allclose(a, b, equal_nan=True)
-    assert not np.allclose(r1["pred"].to_numpy()[~before], r2["pred"].to_numpy()[~before], equal_nan=True)
+    for c in cols:
+        a, b = r1[c].to_numpy()[before], r2[c].to_numpy()[before]
+        assert np.allclose(a, b, equal_nan=True), c
+        assert not np.allclose(r1[c].to_numpy()[~before], r2[c].to_numpy()[~before], equal_nan=True), c
+    return r1, before
+
+
+def test_predictions_do_not_see_future_labels():
+    _leak_check(SMALL_GBM)
+
+
+def test_tfm_member_does_not_see_future_labels(monkeypatch):
+    """TFM 멤버 경로(주기 재학습·열 선별·칼만 잔차 오프셋)도 미래 정답을 보지 않는다. TabICL 대신 작은 트리 모델."""
+    from sklearn.ensemble import HistGradientBoostingRegressor
+    stub = lambda **kw: HistGradientBoostingRegressor(max_iter=20, random_state=0)  # noqa: E731
+    monkeypatch.setattr(fab_vm, "tfm_regressor", stub)
+    rec, before = _leak_check(SMALL_TFM, cols=("pred", "p_tfm", "p_gbm"))
+    assert rec.attrs["tfm_fits"] > 0
+    assert np.isfinite(rec["p_tfm"].to_numpy()[before]).sum() > 20  # 컷오프 전에도 TFM 예측이 실제로 나왔다
 
 
 def test_metrology_delay_is_respected():
@@ -82,3 +101,17 @@ def test_sampling_policies_follow_budget():
     for policy in ("random", "periodic", "smart"):
         rec = simulate(s, mode="vm", delay_h=1.0, policy=policy, budget=0.2, cfg={"gbm": False})
         assert abs(rec["measured"].mean() - 0.2) < 0.07, policy
+
+
+TABICL_SNAP = fab_vm.TFM_CACHE / "hf" / "hub" / "models--jingang--TabICL" / "snapshots"
+
+
+@pytest.mark.skipif(not any(TABICL_SNAP.glob(f"*/{fab_vm.TABICL_CKPT}")), reason="TabICL 가중치 캐시 없음")
+def test_tabicl_member_runs_offline():
+    """실제 TabICLv2 가중치를 캐시에서만(내려받지 않고) 읽어 잔차를 학습·예측한다."""
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(80, 5)).astype(np.float32)
+    y = (2 * X[:, 0] + rng.normal(0, 0.1, 80)).astype(np.float32)
+    m = fab_vm.tfm_regressor(n_estimators=1, threads=1).fit(X[:60], y[:60])
+    p = np.asarray(m.predict(X[60:])).reshape(-1)
+    assert np.mean((p - y[60:]) ** 2) < np.var(y[60:])

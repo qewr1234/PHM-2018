@@ -537,6 +537,18 @@ I found no peer-reviewed paper applying *adaptive* conformal inference specifica
 
 ---
 
+## 11. Tabular foundation models used as members (added 2026-09-30)
+
+These are used as installed packages with their pretrained weights, not copied code. Citation strings come from each package's own citation block.
+
+| Model | Citation | Verified | Licence | Where it is used |
+|---|---|---|---|---|
+| TabPFN v2 | N. Hollmann, S. Müller, L. Purucker, A. Krishnakumar, M. Körfer, S. B. Hoo, R. T. Schirrmeister, F. Hutter. "Accurate predictions on small data with a tabular foundation model." Nature, 2025. https://doi.org/10.1038/s41586-024-08328-6 | yes (citation block in the PriorLabs/TabPFN README; licence text read from https://huggingface.co/Prior-Labs/TabPFN-v2-reg/blob/main/LICENSE.txt) | Code (`tabpfn` 9.0.0): Apache-2.0. v2 weights: Prior Labs License Version 1.1, May 2025 (Apache-2.0 plus paragraph 10, which requires "Built with PriorLabs-TabPFN" to be displayed prominently in related documentation). TabPFN 2.5 and later weights are non-commercial and are not used. | Contest ensemble member (`cmp_models.py`) and Phase-II fixed-lag VM residual member (`fab_phase2.py`), `ModelVersion.V2` only. |
+| TabICLv2 | J. Qu, D. Holzmüller, G. Varoquaux, M. Le Morvan. "TabICLv2: A better, faster, scalable, and open tabular foundation model." arXiv:2602.11139, 2026 (the soda-inria/tabicl README lists it as ICML 2026). Predecessor: "TabICL: A Tabular Foundation Model for In-Context Learning on Large Data." ICML 2025, arXiv:2502.05564. | yes (citation block in the soda-inria/tabicl README) | BSD-3-Clause (code and weights) | Contest ensemble member, real-time Kalman-residual member (`fab_vm.OnlineTFM`) and Phase-II residual member. |
+| TabDPT | J. Ma, V. Thomas, R. Hosseinzadeh, A. Labach, H. Kamkari, J. C. Cresswell, K. Golestan, G. Yu, A. L. Caterini, M. Volkovs. "TabDPT: Scaling Tabular Foundation Models on Real Data." NeurIPS 2025. arXiv:2410.18164 (Layer6) | yes (citation block in the `tabdpt` 1.3.1 package metadata) | Apache-2.0 | Phase-II residual member only. |
+
+---
+
 ## Design recommendations from the literature
 
 1. **Evaluate causally and report the gap.**

@@ -2,7 +2,7 @@
 
 사건 순서 (웨이퍼 i 의 예측 시각 p_i: vm 모드 = 연마 종료, forecast 모드 = 연마 시작)
 1. p_i 이전에 도착한 계측값을 검증해 이력에 넣고, 멤버(EWMA·칼만)·결합 가중치·컨포멀 구간을 갱신한다.
-2. 재학습 시각이 되었으면 LightGBM 을 도착한 계측 웨이퍼로 다시 학습한다.
+2. 재학습 시각이 되었으면 LightGBM(과 선택 멤버 TFM)을 도착한 계측 웨이퍼로 다시 학습한다.
 3. 웨이퍼 i 의 특징(정답 없는 특징 + 이력 특징)을 만들고 멤버 예측 → 결합 → 구간.
 4. 계측 정책에 따라 i 를 계측할지 정한다. 계측하면 T_END + delay 에 정답이 도착한다.
 
@@ -96,6 +96,9 @@ def simulate(s, mode="vm", delay_h=DEFAULT_DELAY_H, policy="all", budget=1.0, cf
                      gbm_fits=len(g.fit_seconds) if g is not None else 0,
                      weights={r: dict(zip(svc.names, np.round(svc.blend.w[r], 3).tolist())) for r in REGIMES},
                      measured_rate=float(measured.mean()))
+    if svc.tfm is not None:
+        rec.attrs.update(tfm_fit_s=float(np.mean(svc.tfm.fit_seconds)) if svc.tfm.fit_seconds else float("nan"),
+                         tfm_fits=len(svc.tfm.fit_seconds))
     return rec
 
 

@@ -67,20 +67,25 @@
 - **레시피가 같아도 "실제로 연마된 시간"은 웨이퍼마다 다릅니다.** 가장 강한 단서는 여전히 가까운 시각 웨이퍼의 측정값(이웃 특징)이지만, 원시 센서 시퀀스의 모양 특징이 레짐별 LightGBM gain 의 9~16% 를 차지하고 그중 첫 단계에서 주 에어백 압력이 정체 수준의 90% 이상인 시간(`s0_mo_hi_sec`, 4B 에서 gain 5.7%)과 가압 구간 길이(`s0_active_span_sec`)가 앞섰습니다. 설정값(P·V)이 아니라 설정에 머문 시간과 전이 구간이 연마량 차이의 일부를 설명합니다.
 - **"마지막으로 측정된 웨이퍼 이후 무엇이 달라졌나"가 정보입니다.** 직전 웨이퍼의 측정 결과만이 아니라 그 웨이퍼와 이 웨이퍼의 공정 상태 차이(가공 시간, P·V 적분, 슬러리, 에어백 압력, 드레서·패드 사용량), 최근 편차의 지수가중 평균, 같은 웨이퍼 다른 스테이지의 편차를 함께 주자(NB_ 확장 특징 50개) nested 교차검증 MSE가 7.02에서 6.80으로 줄었습니다.
 
-## 공장(FAB)에 적용한다면: 실시간 VM 시뮬레이션 ([`FAB.md`](FAB.md))
+## 공장(FAB)에 적용한다면: 실시간 VM과 2단계 확정 VM ([`FAB.md`](FAB.md))
 
-위 결과는 시험 웨이퍼 앞·뒤의 학습 웨이퍼 정답을 함께 쓰는 대회 방식입니다. 공장처럼 **처리 순서대로, 도착한 계측만** 쓰도록 스트리밍 시뮬레이터를 따로 만들었습니다(`fab_vm.py`, `fab_sim.py`, `fab_run.py`).
+위 결과는 시험 웨이퍼 앞·뒤의 학습 웨이퍼 정답을 함께 쓰는 대회 방식입니다. 공장처럼 **처리 순서대로, 도착한 계측만** 쓰도록 두 가지 가상 계측을 따로 만들었습니다. 연마 직후 바로 값을 내는 1단계 실시간 VM(`fab_vm.py`, `fab_sim.py`, `fab_run.py`)과, 연마 L시간 뒤 그 사이 도착한 앞·뒤 웨이퍼 계측까지 써서 같은 웨이퍼 값을 다시 내는 2단계 확정 VM(`fab_phase2.py`, `fab_phase2_run.py`)입니다(Cheng 외 2007의 이중 단계 VM).
 
-| 배포 기간(30~65일) 조건 | MSE |
-|---|---|
-| 대회 방식, 같은 기간 테스트/검증 웨이퍼 | 6.76 / 6.87 |
-| 실시간 VM, 계측이 연마 직후 도착 | 9.26 |
-| **실시간 VM, 계측 지연 1시간 (기준)** | **12.90** |
-| 실시간 VM, 지연 1시간 + 5장 중 1장만 계측 | 15.70 |
+| 배포 기간(30~65일) 조건 | 전체 1,582건 | 같은 기간 테스트 / 검증 웨이퍼 |
+|---|---|---|
+| 대회 방식 (이전 3멤버 앙상블, 인과적이지 않음) | — | 6.76 / 6.87 |
+| **2단계 확정 VM, 연마 24시간 뒤 (인과적, 학습 웨이퍼만 계측)** | — | **6.99 / 7.30** |
+| 2단계 확정 VM, 연마 4시간 뒤 | — | 8.28 / 7.74 |
+| 실시간 VM, 계측이 연마 직후 도착 | 9.26 | 10.83 / 8.54 |
+| **실시간 VM, 계측 지연 1시간 (기준)** | **12.90** | 13.39 / 12.44 |
+| 실시간 VM, 지연 1시간 + TabICLv2 칼만 잔차 멤버 | 12.31 | 12.93 / 12.07 |
+| 실시간 VM, 지연 1시간 + 5장 중 1장만 계측 | 15.70 | 15.96 / 15.80 |
 
 - 가장 큰 차이는 모델이 아니라 **계측 지연**에서 나옵니다(지연 6분만으로 오차 14% 증가).
+- 표 파운데이션 모델 TabICLv2를 칼만 잔차 멤버로 더하면 기준 시나리오가 12.90 → 12.31로 줄었습니다. 개발 기간(7~30일) 비교(11.02 → 10.81)로만 채택했고, 그대로 적용한 주요 시나리오 5개의 전체 MSE가 모두 줄었습니다. 예측 1건은 3.8 ms → 약 0.1초로 늘어납니다.
+- **2단계 확정 VM**은 로트 판정·SPC·피드포워드용입니다(다음 웨이퍼 R2R에는 쓸 수 없음). 24시간 뒤 확정하면 배포 기간에서는 대회 방식과의 차이가 뚜렷하지 않습니다(테스트 +0.24, 웨이퍼 짝 부트스트랩 95% −0.39 ~ +0.87). 전체 기간 테스트 / 검증은 6.98 / 6.98로 대회 방식(6.45 / 6.10)보다 나쁘고, 검증 차이는 뚜렷합니다(+0.88, 95% +0.26 ~ +1.46). 테스트가 6.36보다 낮을 확률은 0.23이라 인과적으로 6.36을 넘는다고는 말할 수 없습니다. 이득은 표 파운데이션 모델 멤버(TabDPT·TabPFN v2·TabICLv2)에서 나옵니다.
 - 계측을 줄일 때는 불확실성 기반 선택보다 **조건별 N장마다 1장**이 나았습니다(불확실성이 큰 웨이퍼 = 오래 쉰 뒤 첫 웨이퍼라 대표성이 낮음).
-- 연마 시간 결정(run-to-run)에서는 계측 되먹임만으로 제거량 오차가 14.6% → 4.8%로 줄고, ML은 EWMA를 거의 못 이깁니다(4.72%).
+- 연마 시간 결정(run-to-run)에서는 계측 되먹임만으로 제거량 오차가 14.6% → 4.8%로 줄고, ML은 EWMA를 거의 못 이깁니다(결합 4.72%, TabICLv2를 더해도 4.66%).
 - 90% 예측 구간(적응형 컨포멀)은 모든 지연 조건에서 적중률 89% 안팎을 유지했습니다.
 - 설계에 참고한 논문·저장소 목록은 `FAB.md`의 "참고한 자료"와 `fab_references.md`에 있습니다.
 
@@ -164,17 +169,18 @@ curl -L -C - -o answers.zip "$A/20210224234745id_/$F/PHM16TestValidationAnswers.
 for z in train_test validation answers; do unzip -oq $z.zip -d $z; done
 cd ../../..
 
-pip install -r requirements.txt     # torch(CPU), lightgbm, scikit-learn, tabpfn, tabicl 등
+pip install -r requirements.txt     # torch(CPU), lightgbm, scikit-learn, tabpfn, tabicl, tabdpt 등
 python cmp2016/run_cmp.py              # 약 38분 (4 CPU 를 다른 작업과 나눠 쓴 상태), cmp2016/results.json
 python cmp2016/build_cmp_dashboard.py  # cmp2016/dashboard/index.html
 python -m pytest tests/test_cmp.py -q  # 특징 누수·자기 제외·형태, 파운데이션 모델 멤버·컬럼 선택 테스트
 python cmp2016/fab_run.py --stage main  # 실시간(FAB) 시뮬레이션 시나리오 22개, 약 7분 (FAB.md)
+python cmp2016/fab_phase2_run.py --stage report --lags 24,4,1  # 2단계 확정 VM 결합·채점 (멤버 계산 명령은 FAB.md 실행 절)
 ```
 
 - 실행 시간 (시드 0, 4 CPU 를 다른 무거운 작업과 나눠 쓴 상태): 특징 약 1분, 멤버별 5-fold + 전체 학습 LightGBM 98초, 신경망 240초, GP 82초, TabICLv2 853초, TabPFN v2 939초. 파운데이션 모델 두 개(CPU 추론)가 대부분입니다.
 - 첫 실행은 원본 센서 행에서 시퀀스 모양 특징과 시퀀스 텐서를 만들어 `data/cmp2016/` 에 캐시하므로 약 2분 더 걸립니다.
-- **파운데이션 모델 가중치**는 첫 실행에서 한 번 받아 `data/cmp2016/tfm_cache/` 에 두고, 그 뒤로는 네트워크 없이 읽습니다: TabPFN v2 회귀(Hugging Face `Prior-Labs/TabPFN-v2-reg`, 44MB) → `tfm_cache/tabpfn/tabpfn-v2-regressor.ckpt`, TabICLv2 회귀(`jingang/TabICL` 의 `tabicl-regressor-v2-20260212.ckpt`, 스냅숏 고정, 114MB) → `tfm_cache/hf/hub/`. 인터넷이 없는 머신에서는 이 폴더를 복사해 두면 됩니다. 가중치는 저장소에 넣지 않습니다(`data/` 는 gitignore).
-- **라이선스**: TabPFN v2 가중치는 [Prior Labs License 1.1](https://huggingface.co/Prior-Labs/TabPFN-v2-reg/blob/main/LICENSE.txt)(Apache-2.0 + 표기 조건), `tabpfn` 패키지 코드는 Apache-2.0 입니다. 표기 조건에 따라 밝힙니다: **Built with PriorLabs-TabPFN**. TabPFN 2.5 이후 가중치는 비상업 라이선스라 쓰지 않습니다. TabICL 코드와 가중치는 BSD-3-Clause 입니다.
+- **파운데이션 모델 가중치**는 첫 실행에서 한 번 받아 `data/cmp2016/tfm_cache/` 에 두고, 그 뒤로는 네트워크 없이 읽습니다: TabPFN v2 회귀(Hugging Face `Prior-Labs/TabPFN-v2-reg`, 44MB) → `tfm_cache/tabpfn/tabpfn-v2-regressor.ckpt`, TabICLv2 회귀(`jingang/TabICL` 의 `tabicl-regressor-v2-20260212.ckpt`, 스냅숏 고정, 114MB) → `tfm_cache/hf/hub/`, TabDPT 회귀(`Layer6/TabDPT` 의 `tabdpt1_3.safetensors`, 스냅숏 a5ca6e01, 252MB, 2단계 VM 전용) → `tfm_cache/hf/hub/`. 인터넷이 없는 머신에서는 이 폴더를 복사해 두면 됩니다. 가중치는 저장소에 넣지 않습니다(`data/` 는 gitignore).
+- **라이선스**: TabPFN v2 가중치는 [Prior Labs License 1.1](https://huggingface.co/Prior-Labs/TabPFN-v2-reg/blob/main/LICENSE.txt)(Apache-2.0 + 표기 조건), `tabpfn` 패키지 코드는 Apache-2.0 입니다. 표기 조건에 따라 밝힙니다: **Built with PriorLabs-TabPFN**. TabPFN 2.5 이후 가중치는 비상업 라이선스라 쓰지 않습니다. TabICL 코드와 가중치는 BSD-3-Clause, TabDPT 코드와 가중치는 Apache-2.0 입니다.
 - 스레드: `OMP_WAIT_POLICY=PASSIVE`, LightGBM 1, torch 2 (TabICL `n_jobs=2`), BLAS 2 (공유 CPU 4개 기준; `cmp_models.py` 에서 설정). 결과는 결정적입니다(같은 스레드 수에서 같은 수치).
 - `--seed N` 으로 교차검증 폴드 시드를 바꿔 확인할 수 있습니다 (보고 수치는 시드 0).
 - 다운로드가 중간에 끊기면 같은 명령을 다시 실행하면 이어받습니다.
