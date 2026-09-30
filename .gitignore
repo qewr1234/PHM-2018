@@ -3,3 +3,5 @@ __pycache__/
 data/
 models/
 predictions/
+# 실험 캐시 (OOF·정적 특징·시퀀스) 와 원본에서 만든 데이터 캐시
+cmp2016/exp/cache_*
