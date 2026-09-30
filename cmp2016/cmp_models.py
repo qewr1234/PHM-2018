@@ -1,4 +1,4 @@
-"""최종 앙상블 멤버 3종과 레짐별 학습·예측 프로토콜.
+"""최종 앙상블 멤버 5종과 레짐별 학습·예측 프로토콜.
 
 멤버 (명세 {"make": 팩토리, "cols": 컬럼 선택, "fillna": 결측 대체값, "per_regime": 레짐별 학습 여부})
 - lgb      : 레짐별 LightGBM. 전체 580 컬럼(기본 + TS_ 정적 + NB_ 이웃 확장) 중 학습 행만으로 짧은 LightGBM 을 돌려
@@ -7,14 +7,26 @@
              목표는 레짐별 학습 평균을 뺀 값. 에폭 수는 학습 행 20% 내부 분할로만 고르고 전체 학습 행으로 다시 학습, 시드 3개 평균.
 - gp_state : 레짐별 가우시안 프로세스, 입력 = 시각(h) + 드레서·패드·멤브레인 사용량. 커널 = 시간 RBF + 상태 RBF_ARD + White,
              초매개변수는 학습 폴드 주변가능도로만 맞춘다. "최근 몇 시간의 수준 + 소모품 상태" 를 매끄럽게 보간하는 멤버.
+- tabpfn   : 레짐별 TabPFN v2 회귀 (사전학습 표 파운데이션 모델, n_estimators=4). 학습 행만으로 LightGBM gain 상위 100
+             컬럼을 고른 뒤 학습 행을 문맥으로 넣어 예측한다 (가중치는 고정, 경사 학습 없음).
+- tabicl   : 레짐별 TabICLv2 회귀 (n_estimators=8), 컬럼 선택은 tabpfn 과 같다.
+
+표 파운데이션 모델 가중치는 data/cmp2016/tfm_cache/ 에 한 번 받아 두고 그 뒤로는 오프라인으로 읽는다
+(TabPFN v2 = Prior Labs License 1.1, Apache-2.0 + "Built with PriorLabs-TabPFN" 표기; TabICL = BSD-3).
+TabPFN 2.5 이후 가중치는 비상업 라이선스라 쓰지 않는다 (ModelVersion.V2 고정).
 
 스레드 (공유 CPU 4개 기준): 이 모듈을 lightgbm/torch 보다 먼저 import 해 OMP_WAIT_POLICY=PASSIVE 를 적용한다.
-LightGBM n_jobs=1 (레짐당 수백 행이라 스레드가 많으면 오히려 느리다), torch 2, BLAS 2 (threadpoolctl).
+LightGBM n_jobs=1 (레짐당 수백 행이라 스레드가 많으면 오히려 느리다), torch 2, BLAS 2 (threadpoolctl), TabICL n_jobs=2.
 """
 import os
+import warnings
+from pathlib import Path
 
 os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")  # 스핀 대기로 다른 작업과 CPU 를 다툴 때 수십 배 느려지는 것을 막는다
 os.environ.setdefault("OMP_NUM_THREADS", "4")
+TFM_CACHE = Path(__file__).resolve().parents[1] / "data" / "cmp2016" / "tfm_cache"
+os.environ.setdefault("TABPFN_MODEL_CACHE_DIR", str(TFM_CACHE / "tabpfn"))
+os.environ.setdefault("TABPFN_ALLOW_CPU_LARGE_DATASET", "true")  # 레짐당 ≤ 815 행이지만 CPU 제한 검사를 끈다
 
 import lightgbm as lgb  # noqa: E402
 import numpy as np  # noqa: E402
@@ -59,6 +71,15 @@ TOPK_SCREEN = {**LGB_BASE, "n_estimators": 300, "learning_rate": 0.05}
 LGB_TOPK = 150
 
 
+def screen_topk(X, y, topk, screen=TOPK_SCREEN):
+    """X, y (학습 행만) 로 짧은 LightGBM 을 돌려 gain 상위 topk 컬럼 이름을 돌려준다 (컬럼이 topk 이하면 전부)."""
+    cols = list(X.columns)
+    if topk is None or len(cols) <= topk:
+        return cols
+    g = pd.Series(lgb.LGBMRegressor(**screen).fit(X, y).booster_.feature_importance("gain"), index=cols)
+    return list(g.sort_values(ascending=False).index[:topk])
+
+
 class TopKLGB:
     """fit 안에서 학습 행만으로 gain 상위 topk 컬럼을 고른 뒤(짧은 LightGBM) 본 모델을 그 컬럼으로 학습한다."""
 
@@ -66,10 +87,7 @@ class TopKLGB:
         self.topk, self.params = topk, {**LGB_BASE, **params}
 
     def fit(self, X, y):
-        self.cols = list(X.columns)
-        if self.topk is not None and len(self.cols) > self.topk:
-            g = pd.Series(lgb.LGBMRegressor(**TOPK_SCREEN).fit(X, y).booster_.feature_importance("gain"), index=self.cols)
-            self.cols = list(g.sort_values(ascending=False).index[: self.topk])
+        self.cols = screen_topk(X, y, self.topk)
         self.m = lgb.LGBMRegressor(**self.params).fit(X[self.cols], y)
         return self
 
@@ -349,16 +367,81 @@ class GPMember:
             return self.gp.predict((Z - self.mu) / self.sd)
 
 
+# ----------------------------------------------------------------------------- tabpfn / tabicl: 표 파운데이션 모델
+TFM_TOPK = 100
+TFM_N_ESTIMATORS = {"tabpfn": 4, "tabicl": 8}
+TABPFN_CKPT = TFM_CACHE / "tabpfn" / "tabpfn-v2-regressor.ckpt"  # HF Prior-Labs/TabPFN-v2-reg
+TABICL_REPO, TABICL_FILE = "jingang/TabICL", "tabicl-regressor-v2-20260212.ckpt"
+TABICL_REV = "4dcd344ece2c00be9e831fdd35bed57b5ad83e19"  # 결과를 만든 HF 스냅숏
+TABICL_HF_CACHE = TFM_CACHE / "hf" / "hub"
+
+
+def tabicl_checkpoint(download=True):
+    """TabICLv2 체크포인트 경로. 캐시(TABICL_HF_CACHE)에 있으면 오프라인으로 찾고, 없으면 한 번 받는다."""
+    from huggingface_hub import hf_hub_download
+    kw = dict(repo_id=TABICL_REPO, filename=TABICL_FILE, revision=TABICL_REV, cache_dir=str(TABICL_HF_CACHE))
+    try:
+        return Path(hf_hub_download(local_files_only=True, **kw))
+    except Exception:
+        if not download:
+            return None
+        return Path(hf_hub_download(**kw))
+
+
+def tfm_weights_cached(kind):
+    return TABPFN_CKPT.exists() if kind == "tabpfn" else tabicl_checkpoint(download=False) is not None
+
+
+class TFMMember:
+    """표 파운데이션 모델 멤버 (kind = "tabpfn" | "tabicl"). fit 안에서 학습 행만으로 LightGBM gain 상위 topk 컬럼을
+    고른 뒤(TopKLGB 와 같은 짧은 LightGBM) 사전학습 모델에 학습 행을 문맥으로 넣는다. 결측은 모델이 직접 처리한다."""
+
+    def __init__(self, kind, topk=TFM_TOPK, n_estimators=None, random_state=0):
+        assert kind in TFM_N_ESTIMATORS, kind
+        self.kind, self.topk, self.random_state = kind, topk, random_state
+        self.n_estimators = TFM_N_ESTIMATORS[kind] if n_estimators is None else n_estimators
+
+    def _model(self):
+        if self.kind == "tabpfn":
+            from tabpfn import TabPFNRegressor
+            from tabpfn.constants import ModelVersion
+            TABPFN_CKPT.parent.mkdir(parents=True, exist_ok=True)  # 없으면 여기로 한 번 받는다
+            return TabPFNRegressor.create_default_for_version(
+                ModelVersion.V2, model_path=str(TABPFN_CKPT), device="cpu", n_estimators=self.n_estimators,
+                ignore_pretraining_limits=True, random_state=self.random_state)
+        from tabicl import TabICLRegressor
+        return TabICLRegressor(n_estimators=self.n_estimators, model_path=tabicl_checkpoint(), allow_auto_download=False,
+                               device="cpu", n_jobs=TORCH_THREADS, random_state=self.random_state)
+
+    def fit(self, X, y):
+        y = np.asarray(y, np.float64)
+        assert np.isfinite(y).all(), "학습 정답에 NaN 이 있습니다 (평가 행 정답이 섞였는지 확인)"
+        self.cols = screen_topk(X, y, self.topk)
+        self.m = self._model()
+        enforce_threads()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self.m.fit(X[self.cols].to_numpy(np.float32), y.astype(np.float32))
+        return self
+
+    def predict(self, X):
+        enforce_threads()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return np.asarray(self.m.predict(X[self.cols].to_numpy(np.float32)), float).reshape(-1)
+
+
 # ----------------------------------------------------------------------------- 명세와 학습·예측 프로토콜
 def make_models(table, seq, present, tiny=False):
     """최종 멤버 명세. table: 표(시각 T_START 를 GP 가 X.index 로 찾는다), seq/present: cmp_data.sequence_tensor.
 
-    tiny=True 는 테스트용 (트리 20 그루, 에폭 4, GP 반복 3) — 수치 보고에는 쓰지 않는다.
+    tiny=True 는 테스트용 (트리 20 그루, 에폭 4, GP 반복 3, 파운데이션 모델 앙상블 1·상위 5 컬럼) — 수치 보고에는 쓰지 않는다.
     """
     hours = table["T_START"] / 3600.0
     lgb_over = {"n_estimators": 20} if tiny else {}
     dl_over = dict(max_epochs=4, min_epochs=1, patience=100, n_seeds=1, n_inner=1) if tiny else {}
     gp_over = {"maxiter": 3} if tiny else {}
+    tfm_over = dict(n_estimators=1, topk=5) if tiny else {}
 
     def spec(make, cols, per_regime):
         def mk():
@@ -370,6 +453,8 @@ def make_models(table, seq, present, tiny=False):
         "lgb": spec(lambda: TopKLGB(**lgb_over), "all", True),
         "seqdl": spec(lambda: SeqDL(seq, present, **dl_over), compact_cols, False),
         "gp_state": spec(lambda: GPMember(hours, **gp_over), pick(GP_STATE_COLS), True),
+        "tabicl": spec(lambda: TFMMember("tabicl", **tfm_over), "all", True),
+        "tabpfn": spec(lambda: TFMMember("tabpfn", **tfm_over), "all", True),
     }
 
 

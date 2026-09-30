@@ -7,3 +7,6 @@ pyarrow
 lightgbm
 torch
 threadpoolctl
+tabpfn==9.0.0
+tabicl==2.2.0
+huggingface_hub

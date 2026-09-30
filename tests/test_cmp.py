@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cmp2016"))
 from cmp_data import (DELTA_COLS, INNER_SEED, PROCESS_COLS, STATE_COLS, TARGET, TS_FAMILIES, USAGE_COLS,  # noqa: E402
@@ -209,11 +210,10 @@ def test_blend_clips_to_training_range_and_nested_matches_apply():
     assert nested >= 0 and ins <= cb.mse(oof["a"], y)  # NNLS 는 in-sample 에서 단일 멤버보다 나쁠 수 없다
 
 
-def test_tiny_members_fit_predict_per_regime_and_global():
-    """세 멤버(tiny 설정)가 레짐별/전역 프로토콜로 유한한 예측을 내고, 신경망 표 가지는 TS_ 컬럼을 보지 않는다."""
+def make_member_data(n=90, seed=0):
+    """레짐 3개(1A·4A·4B)를 섞은 작은 표·특징·시퀀스."""
     import cmp_models as cm
-    rng = np.random.default_rng(0)
-    n = 90
+    rng = np.random.default_rng(seed)
     table = pd.DataFrame({"WAFER_ID": np.arange(n), "STAGE": np.where(np.arange(n) % 3 == 2, "B", "A"),
                           "GROUP": np.where(np.arange(n) % 3 == 0, 1, 4), "T_START": np.arange(n) * 3600.0})
     table["STAGE_B"] = (table["STAGE"] == "B").astype(int)
@@ -228,11 +228,106 @@ def test_tiny_members_fit_predict_per_regime_and_global():
     present = np.ones((n, 3), bool)
     present[::7, 2] = False
     seq[~present] = np.nan
+    return table, X, y, reg, seq, present
+
+
+BASE_MEMBERS = ["lgb", "seqdl", "gp_state"]
+TFM_MEMBERS = ["tabicl", "tabpfn"]
+
+
+def test_tiny_members_fit_predict_per_regime_and_global():
+    """기본 세 멤버(tiny 설정)가 레짐별/전역 프로토콜로 유한한 예측을 내고, 신경망 표 가지는 TS_ 컬럼을 보지 않는다."""
+    import cmp_models as cm
+    n = 90
+    table, X, y, reg, seq, present = make_member_data(n)
     models = cm.make_models(table, seq, present, tiny=True)
+    assert list(models) == BASE_MEMBERS + TFM_MEMBERS
     train_idx, pred_idx = np.arange(0, 70), np.arange(70, n)
-    for name, spec in models.items():
+    for name in BASE_MEMBERS:
+        spec = models[name]
         p = cm.fit_predict(spec, X, y, reg, train_idx, pred_idx)
         assert p.shape == (len(pred_idx),) and np.isfinite(p).all(), name
     cols = cm.compact_cols(list(X.columns))
     assert "NB_E_same_h2_past" in cols and "TS_s0_step_sec" not in cols and "DURATION" not in cols
     assert cm.select_columns(models["gp_state"], X.columns, X) == cm.GP_STATE_COLS
+
+
+# ----------------------------------------------------------------------------- 표 파운데이션 모델 멤버
+def test_tfm_topk_screen_uses_training_rows_only():
+    """TFMMember 의 상위 K 컬럼 선택은 fit 에 들어온 (레짐·학습 폴드) 학습 행만 본다: 예측 행의 특징·정답을 바꿔도
+    같은 컬럼을 고르고, 예측 행 정답이 NaN 이어도 학습된다. 사전학습 모델은 릿지로 바꿔 패키지 없이 검사한다."""
+    import cmp_models as cm
+    from sklearn.impute import SimpleImputer
+    from sklearn.linear_model import Ridge
+    from sklearn.pipeline import make_pipeline
+    n = 90
+    table, X, y, reg, seq, present = make_member_data(n)
+    rng = np.random.default_rng(1)
+    for j in range(12):
+        X[f"TS_noise_{j}"] = rng.normal(size=n)
+    seen = []
+
+    class Probe(cm.TFMMember):
+        def _model(self):
+            return make_pipeline(SimpleImputer(), Ridge(1.0))
+
+        def fit(self, X, y):
+            super().fit(X, y)
+            seen.append((list(X.index), list(self.cols)))
+            return self
+
+    spec = {"make": lambda: Probe("tabpfn", topk=5), "cols": "all", "fillna": None, "per_regime": True}
+    train_idx, pred_idx = np.arange(0, 70), np.arange(70, n)
+    y_blind = y.copy()
+    y_blind[pred_idx] = np.nan  # 예측 행 정답을 쓰면 fit 의 NaN 검사에서 실패한다
+    p1 = cm.fit_predict(spec, X, y_blind, reg, train_idx, pred_idx)
+    first = list(seen)
+    assert np.isfinite(p1).all() and len(first) == 3
+    for rows, cols in first:
+        r = reg[rows[0]]
+        assert rows == list(train_idx[reg[train_idx] == r]) and len(cols) == 5  # 그 레짐의 학습 행만, 상위 5 컬럼
+        use = cm.select_columns(spec, X.columns, X.iloc[rows])
+        assert cols == cm.screen_topk(X.iloc[rows][use], y[rows], 5)
+    # 예측 행의 특징을 뒤섞어도 고른 컬럼은 같다
+    seen.clear()
+    X2 = X.copy()
+    X2.iloc[pred_idx] = X2.iloc[pred_idx].sample(frac=1.0, random_state=0).to_numpy()
+    cm.fit_predict(spec, X2, y_blind, reg, train_idx, pred_idx)
+    assert [c for _, c in seen] == [c for _, c in first]
+
+
+def _tfm_ready(kind):
+    import cmp_models as cm
+    pytest.importorskip(kind)
+    if not cm.tfm_weights_cached(kind):
+        pytest.skip(f"{kind} 가중치가 data/cmp2016/tfm_cache 에 없음 (오프라인 테스트)")
+
+
+@pytest.mark.parametrize("kind", TFM_MEMBERS)
+def test_tfm_member_tiny_fit_predict(kind):
+    """TabICLv2 / TabPFN v2 멤버(tiny: 앙상블 1, 상위 5 컬럼)가 레짐별로 학습·예측하고 결측을 받아들인다."""
+    import cmp_models as cm
+    _tfm_ready(kind)
+    n = 60
+    table, X, y, reg, seq, present = make_member_data(n)
+    spec = cm.make_models(table, seq, present, tiny=True)[kind]
+    train_idx, pred_idx = np.arange(0, 45), np.arange(45, n)
+    y_blind = y.copy()
+    y_blind[pred_idx] = np.nan
+    p = cm.fit_predict(spec, X, y_blind, reg, train_idx, pred_idx)
+    assert p.shape == (len(pred_idx),) and np.isfinite(p).all()
+    # 레짐 수준(1A ≈ 150, 4A·4B ≈ 70)을 따라간다: 문맥으로 넣은 학습 행을 실제로 쓴다는 최소 확인
+    one = reg[pred_idx] == "1A"
+    assert p[one].mean() > 120 and p[~one].mean() < 100
+
+
+def test_paired_bootstrap_rows_and_day_blocks():
+    """짝지은 부트스트랩: 같은 오차면 차 0, 일정한 차는 구간 폭 0, 블록 단위는 블록 수만큼 뽑는다."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cmp2016"))
+    from run_cmp import paired_bootstrap
+    rng = np.random.default_rng(0)
+    e = rng.exponential(5.0, 200)
+    same = paired_bootstrap(e, e, n_boot=200)
+    assert same["delta"] == 0 and same["delta_ci95"] == [0.0, 0.0] and same["mse_se"] > 0
+    shift = paired_bootstrap(e - 1.0, e, blocks=np.arange(200) // 10, n_boot=200)
+    assert shift["n_blocks"] == 20 and np.allclose(shift["delta_ci95"], -1.0) and shift["p_delta_lt0"] == 1.0
