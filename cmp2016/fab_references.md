@@ -173,6 +173,8 @@ I found these through GitHub repository and code search (`PHM 2016 CMP`, `phm201
 
 ---
 
+> **Correction (added after verification).** The Kaggle file `markshizhe/cmp-data-set` (`CMP-test-removalrate_V3.csv`) is **not** the official test answers. Joined on (WAFER_ID, STAGE) with the official `PHM16TestValidationAnswers/orig_CMP-test-removalrate.csv`, all 424 values differ (MSE 7.52 between the two files); it looks like a model's predictions. JamesLeeCY/semiconductor-quality-ml scores against this file: its committed test predictions give MSE 6.24 against the Kaggle labels but 11.46 against the official answers. Numbers from repositories that use the Kaggle file are not comparable with numbers on the official answers.
+
 ## 3. Kaggle
 
 | Item | URL | Verified | Notes |

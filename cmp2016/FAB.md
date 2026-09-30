@@ -198,7 +198,7 @@ python -m pytest tests/test_fab.py -q           # 누수·지연·검증·표본
 
 ### Kaggle
 
-- [markshizhe/cmp-data-set](https://www.kaggle.com/datasets/markshizhe/cmp-data-set): 대회 테스트 정답을 복원한 파일 하나. 이 프로젝트는 대회 공식 정답 파일(웹 아카이브)을 썼으므로 사용하지 않았습니다.
+- [markshizhe/cmp-data-set](https://www.kaggle.com/datasets/markshizhe/cmp-data-set): 테스트 웨이퍼 424건의 연마량 파일 하나. **공식 정답이 아닙니다.** 공식 정답(PHM16TestValidationAnswers)과 424행이 모두 다르고(서로 MSE 7.52), 어떤 모델의 예측값으로 보입니다. 이 파일로 채점한 공개 결과는 공식 정답 기준 점수와 비교할 수 없습니다. 예를 들어 JamesLeeCY 저장소의 XGBoost는 이 파일 기준 6.24, 공식 정답 기준 11.46입니다(저장소에 올라온 웨이퍼별 예측으로 다시 계산). 이 프로젝트는 공식 정답 파일(웹 아카이브)만 썼습니다.
 - PHM 2016 CMP를 다룬 Kaggle 노트북은 찾지 못했습니다.
 
 적응형 컨포멀 추론을 반도체 VM에 적용한 동료 심사 논문은 조사 범위에서 찾지 못했습니다.
